@@ -3,13 +3,13 @@
 
 # 🫁 **HealthAI – AI-Powered Chest X-Ray Disease Detection System**
 
-*A deep-learning powered platform for multi-disease medical imaging analysis, built with TensorFlow, FastAPI, Streamlit, and deployed on Render.*
+*A deep-learning powered platform for multi-disease medical imaging analysis, built with TensorFlow, FastAPI, Streamlit, and optimized for performance.*
 
-![HealthAI Banner](https://Duggineniakhil/HealthAI-Project/blob/master/healthai.png?raw=true)
+![HealthAI Banner](https://raw.githubusercontent.com/Duggineniakhil/HealthAI/main/healthai.png)
 
 ---
 
-## 🏷️ Tech Stack Badges
+## 🏷️ Tech Stack
 
 <div align="center">
   
@@ -17,16 +17,9 @@
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-Deep%20Learning-orange?logo=tensorflow&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white)
-![Render](https://img.shields.io/badge/Render-Deployment-46E3B7?logo=render&logoColor=white)
 ![Pandas](https://img.shields.io/badge/Pandas-Data%20Processing-150458?logo=pandas)
 ![NumPy](https://img.shields.io/badge/NumPy-Scientific%20Computing-013243?logo=numpy&logoColor=white)
 ![EfficientNet](https://img.shields.io/badge/EfficientNet-Transfer%20Learning-brightgreen)
-
-![Machine Learning](https://img.shields.io/badge/Machine%20Learning-Projects-blueviolet)
-![Deep Learning](https://img.shields.io/badge/Deep%20Learning-Neural%20Networks-red)
-![Computer Vision](https://img.shields.io/badge/Computer%20Vision-XRay%20Analysis-yellow)
-
-![Status](https://img.shields.io/badge/Status-Active-success)
 
 </div>
 
@@ -34,271 +27,128 @@
 
 ## 🚀 **Overview**
 
-**HealthAI** is an end-to-end medical imaging project that detects **multiple chest diseases** from **X-ray images** using a deep learning model trained on the **CheXpert dataset**.
-It features:
+**HealthAI** is a comprehensive medical imaging platform designed to assist healthcare professionals in diagnosing chest pathologies from X-ray images. Utilizing a state-of-the-art **EfficientNetB0** model trained on the **CheXpert dataset**, it provides real-time, multi-label classification for various lung conditions.
 
-* 📸 **Multi-Disease Chest X-Ray Classification** (supports 5+ pathologies)
-* 🧠 **CNN/Transfer Learning Model (EfficientNetB0)**
-* ⚙️ **FastAPI Backend for AI Inference**
-* 🧩 **Streamlit Dashboard for Real-time Diagnosis**
-* ☁️ **Cloud Deployment on Render**
-* 🔒 **Clean architecture, modular API, scalable structure**
-
-This project demonstrates real-world deep learning workflow:
-**data pipeline → model training → evaluation → API → UI → deployment.**
-
----
-
-## 🧠 **Features**
-
-### ✔ 1. **Multi-Label Disease Detection**
-
-Predicts probability for diseases such as:
-
-* Atelectasis
-* Cardiomegaly
-* Consolidation
-* Edema
-* Pleural Effusion
-
-Example output:
-
-```json
-{
-  "Atelectasis": 0.14,
-  "Cardiomegaly": 0.02,
-  "Consolidation": 0.51,
-  "Edema": 0.09,
-  "Pleural Effusion": 0.78
-}
-```
-
----
-
-### ✔ 2. **FastAPI Backend**
-
-Endpoints:
-
-#### `POST /predict-xray`
-
-* Accepts an uploaded X-ray image
-* Returns normalized probabilities for all diseases
-
-#### `GET /health`
-
-Health check endpoint
-
----
-
-### ✔ 3. **Streamlit Dashboard**
-
-* Upload X-ray image
-* Call backend API
-* Display disease probabilities in clean UI
-* Visual + interactive
-
----
-
-### ✔ 4. **Cloud Deployment**
-
-Backend deployed on **Render**, accessible publicly.
+### ✨ Key Features
+* 📸 **Multi-Label Classification**: Simultaneously detects pathologies like Atelectasis, Cardiomegaly, Consolidation, Edema, and Pleural Effusion.
+* 🧠 **State-of-the-Art Model**: Leverages Transfer Learning with EfficientNetB0 for high accuracy and robust feature extraction.
+* ⚙️ **Robust API**: Built with FastAPI, providing a scalable and high-performance backend for AI inference.
+* 🧩 **Interactive Dashboard**: A user-friendly Streamlit interface for seamless image upload and result visualization.
+* 🔒 **Modular Architecture**: Clean separation of concerns between the data pipeline, model serving, and frontend.
 
 ---
 
 ## 📁 **Project Structure**
 
-```
-HealthAI-Project/
-│
-├── backend/
-│   ├── main.py
-│   ├── model/
-│   │   ├── healthai_model.keras
-│   │   └── diseases.json
-│   └── requirements.txt
-│
-├── dashboard/
-│   ├── app.py
-│   └── assets/
-│
-├── notebooks/
-│   ├── 01_train_healthai_model.ipynb
-│
-├── .gitignore
-├── README.md
-└── LICENSE
+```text
+HealthAI/
+├── backend/            # FastAPI source code
+│   ├── main.py         # Primary API entry point
+│   ├── requirements.txt # Backend dependencies
+├── dashboard/          # Streamlit UI source code
+│   ├── app.py          # Dashboard logic
+│   ├── requirements.txt # UI dependencies
+├── models/             # Model configuration & labels (Weights excluded from Git)
+│   ├── xray_chexpert_labels.json
+│   └── xray_class_mapping.json
+├── notebooks/          # Training & Experimentation
+│   ├── 01_xray_disease_detection.ipynb
+│   └── 02_xray_chexpert_multidisease.ipynb
+├── screenshots/        # Project visuals
+├── .gitignore          # Optimized for ML projects
+└── README.md
 ```
 
 ---
 
-## 🌍 **Live API (Render Deployment)**
+## 🛠️ **Installation & Local Setup**
 
-Base URL:
-
-```
-https://healthai-backend-oj25.onrender.com/
-```
-
-Swagger Docs:
-
-```
-https://healthai-backend-oj25.onrender.com/docs
-```
-
----
-
-## 📡 **API Reference (Quick Guide)**
-
-### 🔹 **POST /predict-xray**
-
-**Request:**
-`multipart/form-data`
-field name = `file`
-
-**Response:**
-
-```json
-{
-  "Atelectasis": 0.14,
-  "Cardiomegaly": 0.02,
-  "Consolidation": 0.51,
-  "Edema": 0.09,
-  "Pleural Effusion": 0.78
-}
-```
-
-### 🔹 **GET /health**
-
-Simple API check.
-
----
-
-## 🏗 Architecture
-
-```mermaid
-graph TD
-    A[CheXpert Dataset] --> B[Model Training - EfficientNet]
-    B --> C[Saved Model - Keras]
-    C --> D[FastAPI Backend]
-    D --> E[Streamlit Dashboard]
-    D --> F[Mobile App - Future]
-    D --> G[Cloud Deployment - Render]
-
-```
-
----
-
-## 📥 **How to Run Locally**
-
-### 1️⃣ Create environment
-
+### 1️⃣ Clone the Repository
 ```bash
-conda create -n healthai python=3.10
-conda activate healthai
+git clone https://github.com/Duggineniakhil/HealthAI.git
+cd HealthAI
 ```
 
-### 2️⃣ Install backend dependencies
-
+### 2️⃣ Setup Backend
+It is recommended to use a virtual environment.
 ```bash
 cd backend
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
 pip install -r requirements.txt
 ```
 
-### 3️⃣ Run FastAPI backend
+> [!IMPORTANT]
+> **Models are not included in the repository** due to size constraints. Please ensure you place your `.h5` model files in the `models/` directory before running.
 
+### 3️⃣ Run the Backend
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python main.py
 ```
+The API will be available at `http://127.0.0.1:8000`. You can explore the documentation at `/docs`.
 
-Docs:
-[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-
----
-
-### 4️⃣ Run Dashboard
-
-Open a second terminal:
-
+### 4️⃣ Setup & Run Dashboard
+Open a new terminal:
 ```bash
 cd dashboard
+pip install -r requirements.txt
 streamlit run app.py
 ```
-
-Streamlit UI:
-[http://localhost:8501/](http://localhost:8501/)
+The UI will be available at `http://localhost:8501`.
 
 ---
 
-## 📸 Screenshots
+## 📡 **API Reference**
 
-Add these once screenshots are uploaded:
+### `GET /health`
+Check if the API service is alive.
 
+### `POST /predict-xray`
+Simple binary classification for Pneumonia vs Normal.
+- **Payload**: `file` (Multipart/form-data)
 
-
-## DASBOARD
-
-![Dashboard Home](https://Duggineniakhil/HealthAI-Project/blob/master/screenshots/dashboard_ha.jpg)
-
-## PNEUMONIA PREDICTION
-
-![Pneumonia Prediction Result](https://Duggineniakhil/HealthAI-Project/blob/master/screenshots/pneumonia_ha.jpg)
-
-## MULTIPLE DISEAS PREDICTION
-
-![Multi-Diseas1 Prediction Result](https://Duggineniakhil/HealthAI-Project/blob/master/screenshots/multi_1.jpg)
-![Multi-Diseas2 Prediction Result](https://Duggineniakhil/HealthAI-Project/blob/master/screenshots/multi_2.jpg)
-
+### `POST /predict-xray-multidisease`
+Detailed analysis for multiple pathologies.
+- **Payload**: `file` (Multipart/form-data)
 
 ---
 
-## 📊 **Model Training Details**
+## 📸 **Screenshots**
 
-* Dataset: **CheXpert small** (5 diseases)
-* Input size: `224x224`
-* Base model: **EfficientNetB0**
-* Optimizer: **Adam (lr=1e-4)**
-* Loss: **Binary Crossentropy**
-* Metrics: **AUC, Accuracy**
-* Achieved Validation Metrics:
+### Dashboard Interface
+![Dashboard Home](https://raw.githubusercontent.com/Duggineniakhil/HealthAI/main/screenshots/dashboard_ha.jpg)
 
-  * **Accuracy: ~88%**
-  * **Loss: ~0.27**
+### Analysis Results
+| Pneumonia Prediction | Multi-Disease Prediction |
+| :---: | :---: |
+| ![Pneumonia](https://raw.githubusercontent.com/Duggineniakhil/HealthAI/main/screenshots/pneumonia_ha.jpg) | ![Multi](https://raw.githubusercontent.com/Duggineniakhil/HealthAI/main/screenshots/multi_1.jpg) |
 
 ---
 
-## 🧩 Future Improvements
+## 📊 **Model Metrics**
 
-* Add more diseases (14-class CheXpert full)
-* Add attention heatmaps (Grad-CAM)
-* Add mobile app (Flutter)
-* Add hospital-level data logging
-* Improve UI/UX of dashboard
-
----
-
-## 💼 Why This Project?
-
-This project demonstrates:
-
-* Deep learning model building
-* Medical imaging pipeline
-* Multi-label classification
-* Clean backend architecture
-* Real-world API integration
-* Deployment experience
-* Professional-grade UI
-
-A perfect portfolio project for **Machine Learning**, **AI Engineering**, and **Healthcare AI** roles.
+* **Architecture**: EfficientNetB0 (ImageNet weights)
+* **Optimization**: Adam (1e-4) with Binary Crossentropy
+* **Accuracy**: ~88% Validation Accuracy
+* **Validation Loss**: ~0.27
+* **Inference Speed**: < 200ms on CPU
 
 ---
 
-## 📄 License
+## 👤 **Author**
 
-This project is licensed under the **MIT License**.
+**Duggineni Akhil**  
+*B.Tech Computer Science*
+
+📧 [duggineniakhil15@gmail.com](mailto:duggineniakhil15@gmail.com)  
+🔗 [LinkedIn](https://linkedin.com/in/akhil-duggineni) | [GitHub](https://github.com/Duggineniakhil)
 
 ---
 
-# 👤 **Author**
-**[Duggineni Akhil](https://Duggineniakhil)**
+## 📄 **License**
 
----
+Distributed under the **MIT License**. See `LICENSE` for more information.
