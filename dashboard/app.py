@@ -1,197 +1,203 @@
 import streamlit as st
 import requests
+import os
 from io import BytesIO
 from PIL import Image
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import base64
 
 # -----------------------------
-# Config
+# Config & Styling
 # -----------------------------
 
-import os
-API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")   # FastAPI backend base URL
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(
-    page_title="HealthAI - X-ray Analysis",
+    page_title="HealthAI Pro | Clinical X-ray Analysis",
     page_icon="🩻",
-    layout="centered"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# -----------------------------
-# Helper functions (UX logic)
-# -----------------------------
-
-def get_confidence_level(prob: float) -> str:
-    """
-    Simple confidence interpretation for a probability between 0 and 1.
-    We treat distance from 0.5 as confidence.
-    """
-    # distance from uncertain mid-point (0.5)
-    dist = abs(prob - 0.5)
-
-    if dist >= 0.3:
-        return "High"
-    elif dist >= 0.15:
-        return "Medium"
-    else:
-        return "Low"
-
-
-def format_confidence_message(label: str, prob: float) -> str:
-    """
-    Generate a human-readable string summarizing prediction & confidence.
-    """
-    conf = get_confidence_level(prob)
-    if label.upper() == "PNEUMONIA":
-        base = f"Model predicts **PNEUMONIA** with **{prob:.2f}** probability."
-    else:
-        base = f"Model predicts **NORMAL** with **{1 - prob:.2f}** probability (Pneumonia prob: {prob:.2f})."
-
-    return f"{base}  \n**Confidence level:** {conf}."
-
+# Professional Medical Styling
+st.markdown("""
+<style>
+    .main {
+        background-color: #0e1117;
+    }
+    .stMetric {
+        background-color: #1e2227 !important;
+        padding: 15px !important;
+        border-radius: 10px !important;
+        border: 1px solid #30363d !important;
+    }
+    h1, h2, h3 {
+        color: #58a6ff !important;
+    }
+    .stButton>button {
+        width: 100%;
+        background-color: #238636;
+        color: white;
+        border-radius: 5px;
+        height: 3em;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # -----------------------------
-# UI
+# Sidebar - Patient Information
 # -----------------------------
 
-st.title("🩻 HealthAI - Chest X-ray Analysis")
-
-st.write(
-    """
-    HealthAI can analyze chest X-ray images using:
+with st.sidebar:
+    st.image("https://raw.githubusercontent.com/Duggineniakhil/HealthAI/main/healthai.png", use_column_width=True)
+    st.title("🏥 Patient Context")
     
-    - **Simple model**: Pneumonia vs Normal  
-    - **Advanced model (CheXpert)**: Multi-disease probability prediction  
-    """
-)
-
-mode = st.radio(
-    "Select analysis mode:",
-    ["Pneumonia vs Normal (Simple)", "Multi-disease (CheXpert)"]
-)
-
-# Multi-disease threshold slider (only relevant for CheXpert mode)
-if mode.startswith("Multi-disease"):
-    threshold = st.slider(
-        "🔎 Minimum probability to **flag** a condition",
-        min_value=0.10,
-        max_value=0.90,
-        value=0.30,
-        step=0.05,
-        help="Conditions with predicted probability above this threshold will be highlighted."
+    patient_id = st.text_input("Patient ID", "PX-9921")
+    patient_age = st.number_input("Age", 18, 100, 45)
+    patient_gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+    
+    st.divider()
+    
+    st.markdown("### 🛠 Analysis Settings")
+    mode = st.radio(
+        "Analysis Mode",
+        ["Pneumonia Screening", "Comprehensive (CheXpert)"]
     )
-else:
-    threshold = None  # not used in simple mode
+    
+    if mode == "Comprehensive (CheXpert)":
+        threshold = st.slider("Detection Threshold", 0.1, 0.9, 0.3)
+    else:
+        threshold = 0.5
 
-uploaded_file = st.file_uploader(
-    "Upload Chest X-ray Image",
-    type=["jpg", "jpeg", "png"]
-)
+    st.divider()
+    st.info("💡 Grad-CAM Heatmap generation is enabled for pathological localization.")
 
-if uploaded_file is not None:
-    # Show preview
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded X-ray", use_column_width=True)
+# -----------------------------
+# Main Dashboard
+# -----------------------------
 
-    if st.button("🔍 Analyze X-ray"):
-        with st.spinner("Sending image to HealthAI backend..."):
+st.title("🩻 HealthAI Pro - Diagnostic Support System")
+st.caption(f"Connected to Clinical API: {API_URL}")
+
+col1, col2 = st.columns([1, 1], gap="large")
+
+with col1:
+    st.subheader("📸 Image Acquisition")
+    uploaded_file = st.file_uploader(
+        "Upload DICOM or standard Chest X-ray (JPG/PNG)",
+        type=["jpg", "jpeg", "png"]
+    )
+    
+    if uploaded_file:
+        image = Image.open(uploaded_file).convert("RGB")
+        st.image(image, caption="Current Acquisition", use_column_width=True)
+        
+        analyze_btn = st.button("🚀 Run AI Diagnostic Suite")
+    else:
+        st.info("Please upload a chest X-ray to begin the automated analysis pipeline.")
+
+with col2:
+    st.subheader("📊 Diagnostic Results")
+    
+    if uploaded_file and analyze_btn:
+        with st.spinner("Processing through Neural Network..."):
             try:
-                files = {
-                    "file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)
-                }
-
-                # ------------------ SIMPLE MODE ------------------
-                if mode.startswith("Pneumonia"):
-                    resp = requests.post(f"{API_URL}/predict-xray", files=files)
-                    if resp.status_code == 200:
-                        data = resp.json()
+                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
+                
+                # Determine endpoint
+                endpoint = "/predict-xray" if mode == "Pneumonia Screening" else "/predict-xray-multidisease"
+                
+                resp = requests.post(f"{API_URL}{endpoint}", files=files)
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    heatmap_b64 = data.get("heatmap")
+                    
+                    if mode == "Pneumonia Screening":
+                        prob = data.get("pneumonia_probability", 0.0)
                         label = data.get("predicted_label", "Unknown")
-                        pneu_prob = float(data.get("pneumonia_probability", 0.0))
-                        normal_prob = 1.0 - pneu_prob
+                        final_results = {"Pneumonia": prob}
+                        
+                        m_col1, m_col2 = st.columns(2)
+                        m_col1.metric("Pneumonia Prob.", f"{prob*100:.1f}%")
+                        m_col2.metric("Screening Result", label)
+                        
+                        # Gauge Chart
+                        fig = go.Figure(go.Indicator(
+                            mode = "gauge+number",
+                            value = prob * 100,
+                            gauge = {
+                                'axis': {'range': [None, 100]},
+                                'bar': {'color': "#ff4b4b" if prob > 0.5 else "#58a6ff"},
+                                'steps': [
+                                    {'range': [0, 50], 'color': "rgba(0, 255, 0, 0.1)"},
+                                    {'range': [50, 100], 'color': "rgba(255, 0, 0, 0.1)"}
+                                ],
+                            }
+                        ))
+                        fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor='rgba(0,0,0,0)', font={'color': "white"})
+                        st.plotly_chart(fig, use_container_width=True)
 
-                        st.subheader("🩺 Simple Pneumonia Prediction")
-
-                        # Show probabilities in a small table
-                        prob_df = pd.DataFrame(
-                            [
-                                {"Class": "Pneumonia", "Probability": pneu_prob},
-                                {"Class": "Normal", "Probability": normal_prob},
-                            ]
-                        )
-                        st.table(prob_df.style.format({"Probability": "{:.2f}"}))
-
-                        # Confidence message
-                        st.write(format_confidence_message(label, pneu_prob))
-
-                        # Alert style messages
-                        if label.upper() == "PNEUMONIA":
-                            st.warning(
-                                "⚠️ The model leans towards **PNEUMONIA**. "
-                                "This is an AI assistant prediction, not a medical diagnosis. "
-                                "Please consult a medical professional for confirmation."
-                            )
-                        else:
-                            st.info(
-                                "✅ The model leans towards **NORMAL**. "
-                                "However, AI predictions are not a substitute for clinical evaluation."
-                            )
                     else:
-                        st.error(f"Backend error ({resp.status_code}): {resp.text}")
-
-                # ------------------ MULTI-DISEASE MODE ------------------
-                else:
-                    resp = requests.post(f"{API_URL}/predict-xray-multidisease", files=files)
-                    if resp.status_code == 200:
-                        data = resp.json()
                         predictions = data.get("predictions", {})
-                        top3 = data.get("top3", [])
-
-                        st.subheader("🧬 Multi-disease Probabilities (CheXpert)")
-
-                        if predictions:
-                            # Convert predictions to DataFrame
-                            df = pd.DataFrame(
-                                [
-                                    {"Condition": k, "Probability": v}
-                                    for k, v in predictions.items()
-                                ]
-                            ).sort_values("Probability", ascending=False)
-
-                            # Show full table
-                            st.markdown("**All predicted conditions (sorted):**")
-                            st.dataframe(df.style.format({"Probability": "{:.2f}"}))
-
-                            # Highlight flagged conditions above threshold
-                            if threshold is not None:
-                                flagged = df[df["Probability"] >= threshold]
-                                if not flagged.empty:
-                                    st.markdown(f"### 🚩 Conditions above threshold ({threshold:.2f})")
-                                    st.table(flagged.style.format({"Probability": "{:.2f}"}))
-                                else:
-                                    st.markdown(
-                                        f"✅ No conditions exceeded the threshold of **{threshold:.2f}**."
-                                    )
-
-                            # Top 3 section
-                            if top3:
-                                st.markdown("### 🏆 Top 3 predicted conditions")
-                                for item in top3:
-                                    st.write(
-                                        f"- **{item['label']}** → probability: **{item['probability']:.2f}**"
-                                    )
-
-                            st.info(
-                                "📝 These probabilities are **model estimates** based on patterns in X-ray images. "
-                                "They **must not** be used as a standalone medical diagnosis. "
-                                "Always consult a qualified healthcare professional."
-                            )
+                        final_results = predictions
+                        df = pd.DataFrame([{"Condition": k, "Probability": v} for k, v in predictions.items()])
+                        df = df.sort_values("Probability", ascending=True)
+                        
+                        # Horizontal Bar Chart
+                        fig = px.bar(
+                            df, x='Probability', y='Condition', 
+                            orientation='h', color='Probability',
+                            color_continuous_scale='RdBu_r'
+                        )
+                        fig.update_layout(height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font={'color': "white"})
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        flagged = df[df["Probability"] >= threshold]
+                        if not flagged.empty:
+                            st.error(f"⚠️ {len(flagged)} pathologies detected for Patient {patient_id}")
                         else:
-                            st.warning("No predictions returned by backend.")
+                            st.success("✅ No pathologies detected above threshold.")
 
+                    # Show Heatmap if available
+                    if heatmap_b64:
+                        st.divider()
+                        st.subheader("🧠 Pathological Localization (Grad-CAM)")
+                        st.image(base64.b64decode(heatmap_b64), caption=f"Heatmap visualization for Patient {patient_id}", use_column_width=True)
+                        st.info("The highlighted areas indicate the regions contributing most to the AI prediction.")
+
+                    # Export Section
+                    st.divider()
+                    st.subheader("📑 Report Management")
+                    
+                    report_data = {
+                        "patient": {"id": patient_id, "age": patient_age, "gender": patient_gender},
+                        "results": final_results
+                    }
+                    
+                    report_resp = requests.post(f"{API_URL}/generate-report", json=report_data)
+                    if report_resp.status_code == 200:
+                        st.download_button(
+                            label="📄 Download Diagnostic PDF Report",
+                            data=report_resp.content,
+                            file_name=f"HealthAI_Report_{patient_id}.pdf",
+                            mime="application/pdf"
+                        )
                     else:
-                        st.error(f"Backend error ({resp.status_code}): {resp.text}")
+                        st.warning("Could not generate PDF report at this time.")
 
+                else:
+                    st.error(f"Clinical API Error: {resp.text}")
+                    
             except Exception as e:
-                st.error(f"Error connecting to backend: {e}")
-else:
-    st.info("Please upload a chest X-ray image to begin.")
+                st.error("Diagnostic Pipeline Interrupted")
+                st.exception(e)
+
+    elif not uploaded_file:
+        st.write("Waiting for data acquisition...")
+
+st.divider()
+st.caption("© 2024 HealthAI Diagnostic Systems | Developed by Duggineni Akhil | For Clinical Decision Support Only")

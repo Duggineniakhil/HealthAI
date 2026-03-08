@@ -7,3 +7,5 @@ tensorflow-cpu
 python-multipart
 pydantic
 joblib
+fpdf2
+matplotlib
