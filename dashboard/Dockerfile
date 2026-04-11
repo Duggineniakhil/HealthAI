@@ -1,13 +1,11 @@
-# Dashboard Dockerfile
-FROM python:3.10-slim
+# Dashboard Dockerfile - Static Web App
+FROM nginx:alpine
 
-WORKDIR /app
+# Remove default nginx static assets
+RUN rm -rf /usr/share/nginx/html/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy the static frontend files
+COPY . /usr/share/nginx/html
 
-COPY . .
-
-EXPOSE 8501
-
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

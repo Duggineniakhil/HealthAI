@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedAI Analysis</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-background"></div>
+    
+    <header class="header">
+        <div class="logo-area">
+            <div class="logo-icon">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                </svg>
+            </div>
+            <div class="logo-text">MedAI Analysis</div>
+        </div>
+        <nav class="main-nav">
+            <a href="#" class="nav-item">PATIENTS</a>
+            <a href="#" class="nav-item active">ANALYSIS</a>
+            <a href="#" class="nav-item">REPORTS</a>
+            <a href="#" class="nav-item">SETTINGS</a>
+        </nav>
+        <div class="user-profile">
+            <img src="https://i.pravatar.cc/100?img=11" alt="Doctor Avatar" class="avatar">
+            <span class="user-name">Dr. Alex Chen</span>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+    </header>
+
+    <main class="dashboard-grid">
+        <!-- Left Panel -->
+        <div class="left-panel">
+            <div class="card patient-card">
+                <div class="patient-header">
+                    <img src="https://i.pravatar.cc/100?img=5" alt="Jane Doe" class="patient-avatar">
+                    <div class="patient-name-id">
+                        <h2>JANE DOE</h2>
+                        <span class="pid">ID: 749032</span>
+                    </div>
+                </div>
+                <div class="patient-stats">
+                    <div class="stat">
+                        <span class="stat-label">Age</span>
+                        <span class="stat-value">42</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Status</span>
+                        <span class="stat-value status-critical">Critical</span>
+                    </div>
+                </div>
+                <div class="analysis-summary">
+                    <h3>ANALYSIS SUMMARY</h3>
+                    <p>Chest X-ray designed duited medical image anayps.</p>
+                    <p>Analysis summary efected analysis to use out that is summary.</p>
+                </div>
+            </div>
+
+            <div class="card confidence-card">
+                <h3>DISEASE CONFIDENCE</h3>
+                <div class="confidence-list">
+                    <div class="confidence-item type-pneumonia">
+                        <div class="conf-head">
+                            <span>PNEUMONIA</span>
+                            <span class="conf-val">94.2% <span class="badge">[High]</span></span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill" style="width: 94.2%;"></div></div>
+                    </div>
+                    <div class="confidence-item type-atelectasis">
+                        <div class="conf-head">
+                            <span>ATELECTASIS</span>
+                            <span class="conf-val">81.5% <span class="badge">[High]</span></span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill" style="width: 81.5%;"></div></div>
+                    </div>
+                    <div class="confidence-item type-effusion">
+                        <div class="conf-head">
+                            <span>EFFUSION</span>
+                            <span class="conf-val">42.1% <span class="badge">[Med]</span></span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill" style="width: 42.1%;"></div></div>
+                    </div>
+                    <div class="confidence-item type-cardiomegaly">
+                        <div class="conf-head">
+                            <span>CARDIOMEGALY</span>
+                            <span class="conf-val">18.7% <span class="badge">[Low]</span></span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill" style="width: 18.7%;"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Panel -->
+        <div class="middle-panel">
+            <div class="card xray-card">
+                <div class="card-header-flex">
+                    <h3>CHEST X-RAY IMAGES</h3>
+                    <div class="tag-badge">Posterior-Anterior</div>
+                </div>
+                <div class="xray-container">
+                    <!-- Wait, do we use the generated xray image or just a generic one? I'll use an unsplash API or a generated one. I will use the one I generated if I could serve it, but since it's an artifact, let me just link a realistic unspash or placeholder. -->
+                    <!-- I'll use a placeholder that will be styled via CSS to look like the x-ray, or inject the generated image when testing. I can use an unsplash x-ray for now. -->
+                    <div class="xray-image-wrapper">
+                        <!-- Simulate image background via CSS, we'll put the bounding boxes here -->
+                        <div class="bounding-box box-pneumonia">
+                            <div class="box-label">
+                                <strong>PNEUMONIA</strong><br>
+                                <span>Score: 0.94</span>
+                            </div>
+                        </div>
+                        <div class="bounding-box box-atelectasis">
+                            <div class="box-label">
+                                <strong>ATELECTASIS</strong><br>
+                                <span>Score: 0.81</span>
+                            </div>
+                        </div>
+                        <div class="xray-label L-label">L</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card chart-card">
+                <div class="chart-header">
+                    <h3>DISEASE PROBABILITY DISTRIBUTION</h3>
+                    <div class="chart-legend">
+                        <span class="legend-item"><span class="dot dot-pneumonia"></span> Pneumonia</span>
+                        <span class="legend-item"><span class="dot dot-atelectasis"></span> Atelectasis</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="probabilityChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="right-panel">
+            <div class="card findings-card">
+                <h3>FINDINGS & NOTES</h3>
+                <div class="findings-content">
+                    <div class="node-icon">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v7M12 15v7"></path></svg>
+                    </div>
+                    <div class="finding-block">
+                        <h4>Automated detection</h4>
+                        <p>Patchy consolidations right lower lobe; volume lose; volume loss or left base.</p>
+                    </div>
+                    <div class="finding-block">
+                        <h4>Dr. Review</h4>
+                        <p>Confirmed.</p>
+                    </div>
+                    <div class="finding-block">
+                        <h4>AI recommendation</h4>
+                        <p>Automated detection AI and imoredicavor AI recommendation.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card scan-details-card">
+                <h3>SCAN DETAILS</h3>
+                <div class="detail-row">
+                    <span class="detail-label">Scan Date</span>
+                    <span class="detail-value">2024.10.26 14:32 PST</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Scan Time</span>
+                    <span class="detail-value">2024.10.26</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Eirrament</span>
+                    <span class="detail-value">Neormmmeaded</span>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary">REVIEW SCAN</button>
+                <button class="btn btn-secondary">VALIDATE FINDINGS</button>
+            </div>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
