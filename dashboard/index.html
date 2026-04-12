@@ -64,33 +64,9 @@
             <div class="card confidence-card">
                 <h3>DISEASE CONFIDENCE</h3>
                 <div class="confidence-list">
-                    <div class="confidence-item type-pneumonia">
-                        <div class="conf-head">
-                            <span>PNEUMONIA</span>
-                            <span class="conf-val">94.2% <span class="badge">[High]</span></span>
-                        </div>
-                        <div class="progress-track"><div class="progress-fill" style="width: 94.2%;"></div></div>
-                    </div>
-                    <div class="confidence-item type-atelectasis">
-                        <div class="conf-head">
-                            <span>ATELECTASIS</span>
-                            <span class="conf-val">81.5% <span class="badge">[High]</span></span>
-                        </div>
-                        <div class="progress-track"><div class="progress-fill" style="width: 81.5%;"></div></div>
-                    </div>
-                    <div class="confidence-item type-effusion">
-                        <div class="conf-head">
-                            <span>EFFUSION</span>
-                            <span class="conf-val">42.1% <span class="badge">[Med]</span></span>
-                        </div>
-                        <div class="progress-track"><div class="progress-fill" style="width: 42.1%;"></div></div>
-                    </div>
-                    <div class="confidence-item type-cardiomegaly">
-                        <div class="conf-head">
-                            <span>CARDIOMEGALY</span>
-                            <span class="conf-val">18.7% <span class="badge">[Low]</span></span>
-                        </div>
-                        <div class="progress-track"><div class="progress-fill" style="width: 18.7%;"></div></div>
+                    <!-- Dynamic confidences will be injected here by AI -->
+                    <div style="color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 20px 0;">
+                        Awaiting scan data...
                     </div>
                 </div>
             </div>
@@ -103,24 +79,26 @@
                     <h3>CHEST X-RAY IMAGES</h3>
                     <div class="tag-badge">Posterior-Anterior</div>
                 </div>
-                <div class="xray-container">
-                    <!-- Wait, do we use the generated xray image or just a generic one? I'll use an unsplash API or a generated one. I will use the one I generated if I could serve it, but since it's an artifact, let me just link a realistic unspash or placeholder. -->
-                    <!-- I'll use a placeholder that will be styled via CSS to look like the x-ray, or inject the generated image when testing. I can use an unsplash x-ray for now. -->
-                    <div class="xray-image-wrapper">
-                        <!-- Simulate image background via CSS, we'll put the bounding boxes here -->
-                        <div class="bounding-box box-pneumonia">
-                            <div class="box-label">
-                                <strong>PNEUMONIA</strong><br>
-                                <span>Score: 0.94</span>
-                            </div>
+                <div class="xray-container" id="upload-zone">
+                    <div class="upload-placeholder" id="upload-placeholder">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                        <p>Drag & Drop X-ray image here</p>
+                        <span class="upload-hint">or click to browse</span>
+                        <input type="file" id="file-input" accept="image/jpeg, image/png, image/jpg" hidden>
+                    </div>
+                    
+                    <div class="xray-image-wrapper hidden" id="image-wrapper">
+                        <img id="preview-image" src="" alt="X-ray Preview">
+                        <img id="heatmap-image" src="" alt="Grad-CAM Heatmap" class="heatmap-overlay hidden">
+                        <div class="image-controls">
+                            <button id="toggle-heatmap" class="btn btn-secondary btn-small hidden">Toggle Heatmap</button>
+                            <button id="reset-upload" class="btn btn-secondary btn-small">Upload New</button>
                         </div>
-                        <div class="bounding-box box-atelectasis">
-                            <div class="box-label">
-                                <strong>ATELECTASIS</strong><br>
-                                <span>Score: 0.81</span>
-                            </div>
-                        </div>
-                        <div class="xray-label L-label">L</div>
+                    </div>
+                    
+                    <div class="loading-overlay hidden" id="loading-spinner">
+                        <div class="spinner"></div>
+                        <p>AI Engine Processing...</p>
                     </div>
                 </div>
             </div>
@@ -129,8 +107,7 @@
                 <div class="chart-header">
                     <h3>DISEASE PROBABILITY DISTRIBUTION</h3>
                     <div class="chart-legend">
-                        <span class="legend-item"><span class="dot dot-pneumonia"></span> Pneumonia</span>
-                        <span class="legend-item"><span class="dot dot-atelectasis"></span> Atelectasis</span>
+                        <!-- Legend generated dynamically -->
                     </div>
                 </div>
                 <div class="chart-container">
@@ -144,20 +121,8 @@
             <div class="card findings-card">
                 <h3>FINDINGS & NOTES</h3>
                 <div class="findings-content">
-                    <div class="node-icon">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v7M12 15v7"></path></svg>
-                    </div>
                     <div class="finding-block">
-                        <h4>Automated detection</h4>
-                        <p>Patchy consolidations right lower lobe; volume lose; volume loss or left base.</p>
-                    </div>
-                    <div class="finding-block">
-                        <h4>Dr. Review</h4>
-                        <p>Confirmed.</p>
-                    </div>
-                    <div class="finding-block">
-                        <h4>AI recommendation</h4>
-                        <p>Automated detection AI and imoredicavor AI recommendation.</p>
+                        <p>Awaiting upload...</p>
                     </div>
                 </div>
             </div>

@@ -21,28 +21,124 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Professional Medical Styling
+# Premium Medical Glassmorphism Styling
 st.markdown("""
 <style>
-    .main {
-        background-color: #0e1117;
+    :root {
+        --cyan: #00f0ff;
+        --cyan-glow: rgba(0, 240, 255, 0.4);
+        --purple: #a855f7;
+        --purple-glow: rgba(168, 85, 247, 0.4);
     }
-    .stMetric {
-        background-color: #1e2227 !important;
-        padding: 15px !important;
-        border-radius: 10px !important;
-        border: 1px solid #30363d !important;
+    
+    /* App Background */
+    .stApp {
+        background: radial-gradient(circle at 40% 10%, #15243b 0%, #070d18 60%);
+        font-family: 'Inter', sans-serif;
     }
-    h1, h2, h3 {
-        color: #58a6ff !important;
+    
+    /* Top padding fix */
+    .block-container {
+        padding-top: 2rem !important;
     }
+    
+    /* Hide default header */
+    header { visibility: hidden; }
+    
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background-color: rgba(16, 25, 41, 0.6) !important;
+        backdrop-filter: blur(16px);
+        border-right: 1px solid rgba(43, 62, 88, 0.3);
+    }
+    
+    /* Metric Cards */
+    [data-testid="metric-container"] {
+        background: rgba(16, 25, 41, 0.7) !important;
+        backdrop-filter: blur(12px) !important;
+        padding: 20px !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(43, 62, 88, 0.5) !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+        transition: transform 0.3s ease, border-color 0.3s ease;
+    }
+    [data-testid="metric-container"]:hover {
+        transform: translateY(-5px);
+        border-color: var(--cyan) !important;
+        box-shadow: 0 8px 25px var(--cyan-glow) !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #8ba0b8 !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.5px;
+    }
+    [data-testid="stMetricValue"] {
+        color: #fff !important;
+        font-weight: 300 !important;
+        font-size: 2.2rem !important;
+    }
+    
+    /* Action Buttons */
     .stButton>button {
         width: 100%;
-        background-color: #238636;
-        color: white;
-        border-radius: 5px;
-        height: 3em;
-        font-weight: bold;
+        background: linear-gradient(135deg, var(--cyan), #3b82f6);
+        color: #000;
+        border: none;
+        border-radius: 8px;
+        height: 3.2em;
+        font-weight: 700;
+        letter-spacing: 1px;
+        box-shadow: 0 0 15px rgba(0,240,255,0.3);
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+    }
+    .stButton>button:hover {
+        box-shadow: 0 0 25px rgba(0,240,255,0.6);
+        transform: scale(1.02);
+        color: #000;
+        background: linear-gradient(135deg, #33f3ff, #60a5fa);
+    }
+    
+    /* Secondary Download Button */
+    .stDownloadButton>button {
+        background: transparent !important;
+        color: #fff !important;
+        border: 1px solid rgba(255,255,255,0.2) !important;
+        backdrop-filter: blur(4px) !important;
+    }
+    .stDownloadButton>button:hover {
+        background: rgba(255,255,255,0.05) !important;
+        border-color: #fff !important;
+    }
+
+    /* Headings */
+    h1 {
+        font-weight: 800 !important;
+        letter-spacing: -1px;
+        background: linear-gradient(90deg, #fff, #8ba0b8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0 !important;
+    }
+    h2, h3 { 
+        color: #58a6ff !important; 
+        font-weight: 600 !important; 
+    }
+    
+    /* Images */
+    div[data-testid="stImage"] img {
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+    
+    /* Info Box */
+    .stAlert {
+        border-radius: 8px !important;
+        background-color: rgba(16, 25, 41, 0.7) !important;
+        backdrop-filter: blur(8px) !important;
+        border: 1px solid rgba(43, 62, 88, 0.5) !important;
+        color: #e2e8f0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -64,7 +160,7 @@ with st.sidebar:
     st.markdown("### 🛠 Analysis Settings")
     mode = st.radio(
         "Analysis Mode",
-        ["Pneumonia Screening", "Comprehensive (CheXpert)"]
+        ["Comprehensive (CheXpert)", "Pneumonia Screening"]
     )
     
     if mode == "Comprehensive (CheXpert)":
@@ -93,7 +189,7 @@ with col1:
     
     if uploaded_file:
         image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Current Acquisition", use_column_width=True)
+        st.image(image, caption="Current Acquisition", use_container_width=True)
         
         analyze_btn = st.button("🚀 Run AI Diagnostic Suite")
     else:
@@ -138,7 +234,12 @@ with col2:
                                 ],
                             }
                         ))
-                        fig.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor='rgba(0,0,0,0)', font={'color': "white"})
+                        fig.update_layout(
+                            height=300, 
+                            margin=dict(l=20, r=20, t=30, b=20), 
+                            paper_bgcolor='rgba(0,0,0,0)', 
+                            font={'color': "#8ba0b8", 'family': "Inter"}
+                        )
                         st.plotly_chart(fig, use_container_width=True)
 
                     else:
@@ -153,7 +254,14 @@ with col2:
                             orientation='h', color='Probability',
                             color_continuous_scale='RdBu_r'
                         )
-                        fig.update_layout(height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font={'color': "white"})
+                        fig.update_layout(
+                            height=400, 
+                            paper_bgcolor='rgba(0,0,0,0)', 
+                            plot_bgcolor='rgba(0,0,0,0)', 
+                            font={'color': "#8ba0b8", 'family': "Inter"},
+                            margin=dict(l=0, r=0, t=20, b=0),
+                            coloraxis_showscale=False
+                        )
                         st.plotly_chart(fig, use_container_width=True)
                         
                         flagged = df[df["Probability"] >= threshold]
@@ -166,7 +274,7 @@ with col2:
                     if heatmap_b64:
                         st.divider()
                         st.subheader("🧠 Pathological Localization (Grad-CAM)")
-                        st.image(base64.b64decode(heatmap_b64), caption=f"Heatmap visualization for Patient {patient_id}", use_column_width=True)
+                        st.image(base64.b64decode(heatmap_b64), caption=f"Heatmap visualization for Patient {patient_id}", use_container_width=True)
                         st.info("The highlighted areas indicate the regions contributing most to the AI prediction.")
 
                     # Export Section
