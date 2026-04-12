@@ -7,6 +7,39 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import base64
+import json
+import uuid
+import time
+from datetime import datetime
+
+# -----------------------------
+# Data Persistence Utilities
+# -----------------------------
+
+DATA_DIR = "dashboard/data"
+REPORTS_DIR = "dashboard/reports"
+PATIENTS_FILE = os.path.join(DATA_DIR, "patients.json")
+
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+if not os.path.exists(PATIENTS_FILE):
+    with open(PATIENTS_FILE, "w") as f:
+        json.dump([], f)
+
+def load_patients():
+    try:
+        with open(PATIENTS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_patients(patients):
+    with open(PATIENTS_FILE, "w") as f:
+        json.dump(patients, f, indent=4)
+
+def generate_unique_id():
+    return f"PX-{uuid.uuid4().hex[:4].upper()}"
 
 # -----------------------------
 # Config & Styling
@@ -160,12 +193,17 @@ if 'patient' not in st.session_state:
     
     _, col_form, _ = st.columns([1, 1.5, 1])
     with col_form:
+        # Initialize an ID if not present in session state for this form instance
+        if 'form_patient_id' not in st.session_state:
+            st.session_state['form_patient_id'] = generate_unique_id()
+
         with st.form("patient_form"):
             st.markdown("<strong style='color:var(--cyan);'>Primary Demographics</strong>", unsafe_allow_html=True)
-            p_name = st.text_input("Full Name", value="")
+            p_name = st.text_input("Full Name", placeholder="e.g. John Doe")
             
             c1, c2 = st.columns(2)
-            p_id = c1.text_input("Patient ID", value="PX-")
+            # Display the auto-generated ID as a disabled text input
+            p_id = c1.text_input("Patient ID", value=st.session_state['form_patient_id'], disabled=True)
             p_age = c2.number_input("Age", min_value=1, max_value=120, value=25)
             
             st.markdown("<br><strong style='color:var(--cyan);'>Clinical Context</strong>", unsafe_allow_html=True)
@@ -180,13 +218,22 @@ if 'patient' not in st.session_state:
                 if not p_name.strip():
                     st.error("Please enter the patient's name.")
                 else:
-                    st.session_state['patient'] = {
+                    new_patient = {
                         "name": p_name,
                         "id": p_id,
                         "age": p_age,
                         "gender": p_gender,
-                        "status": p_status
+                        "status": p_status,
+                        "registered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
+                    # Persist to database
+                    db = load_patients()
+                    db.append(new_patient)
+                    save_patients(db)
+                    
+                    # Set session state and clear form ID for next time
+                    st.session_state['patient'] = new_patient
+                    del st.session_state['form_patient_id']
                     st.rerun()
 
 else:
@@ -214,16 +261,55 @@ else:
 
     if nav_choice == "PATIENTS":
         st.subheader("🏥 Patient Database")
-        st.dataframe(pd.DataFrame([
-            {"ID": "PX-9921", "Name": "Jane Doe", "Age": 42, "Status": "Critical", "Last Exam": "2024-10-26"},
-            {"ID": "PX-8834", "Name": "John Smith", "Age": 68, "Status": "Routine", "Last Exam": "2024-10-21"},
-            {"ID": "PX-7712", "Name": "Sarah Connor", "Age": 33, "Status": "Urgent", "Last Exam": "2024-10-25"}
-        ]), hide_index=True, use_container_width=True)
-        st.button("ENROLL NEW PATIENT")
+        db = load_patients()
+        
+        if not db:
+            st.info("No patients registered yet. Please register a patient in the Analysis tab.")
+        else:
+            # Custom styled table header
+            st.markdown("""
+            <div style='display:grid; grid-template-columns: 1fr 2fr 1fr 1fr 1fr 0.5fr; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; font-weight:bold; color:var(--cyan); margin-bottom:10px;'>
+                <div>ID</div><div>NAME</div><div>AGE</div><div>GENDER</div><div>STATUS</div><div>ACTION</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for i, p in enumerate(db):
+                cols = st.columns([1, 2, 1, 1, 1, 0.5])
+                cols[0].write(p["id"])
+                cols[1].write(p["name"])
+                cols[2].write(p["age"])
+                cols[3].write(p["gender"])
+                status_color = "#ff4b4b" if p["status"] == "Critical" else ("#f59e0b" if p["status"] == "Urgent" else "#10b981")
+                cols[4].markdown(f"<span style='color:{status_color};'>{p['status']}</span>", unsafe_allow_html=True)
+                
+                if cols[5].button("🗑️", key=f"del_p_{p['id']}_{i}"):
+                    db.pop(i)
+                    save_patients(db)
+                    st.rerun()
+            
+        if st.button("REGISTER NEW PATIENT"):
+            if 'patient' in st.session_state:
+                del st.session_state['patient']
+            st.rerun()
         
     elif nav_choice == "REPORTS":
         st.subheader("📑 Report Archives")
-        st.info("No legacy reports found. Complete the current pipeline to generate a diagnostic PDF.")
+        report_files = [f for f in os.listdir(REPORTS_DIR) if f.endswith(".pdf")]
+        
+        if not report_files:
+            st.info("No diagnostic reports archived yet.")
+        else:
+            for i, f_name in enumerate(report_files):
+                cols = st.columns([4, 1, 0.5])
+                cols[0].write(f"📄 {f_name}")
+                
+                file_path = os.path.join(REPORTS_DIR, f_name)
+                with open(file_path, "rb") as f:
+                    cols[1].download_button("Download", f, file_name=f_name, key=f"dl_{i}")
+                
+                if cols[2].button("🗑️", key=f"del_r_{i}"):
+                    os.remove(file_path)
+                    st.rerun()
         
     elif nav_choice == "SETTINGS":
         st.subheader("⚙️ Analysis Settings")
@@ -294,12 +380,13 @@ else:
             </div>
             """, unsafe_allow_html=True)
     
-            st.markdown("""
+            st.markdown(f"""
             <div style='background:rgba(16,25,41,0.7); padding:24px; border-radius:16px; border:1px solid rgba(43,62,88,0.5); margin-bottom:24px; box-shadow:0 10px 30px rgba(0,0,0,0.3);'>
                 <strong style='color:#fff; font-size:12px; letter-spacing:1px; display:block; margin-bottom:15px;'>SCAN DETAILS</strong>
-                <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Current Date</span><span style='color:#fff; font-size:13px;'>Just Now</span></div>
-                <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Engine</span><span style='color:#fff; font-size:13px;'>CheXpert HD</span></div>
-                <div style='display:flex; justify-content:space-between;'><span style='color:#8ba0b8; font-size:13px;'>Environment</span><span style='color:#fff; font-size:13px;'>Standard</span></div>
+                <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Patient ID</span><span style='color:#fff; font-size:13px;'>{patient["id"]}</span></div>
+                <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Scan Date</span><span style='color:#fff; font-size:13px;'>{datetime.now().strftime("%Y.%m.%d")}</span></div>
+                <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Engine</span><span style='color:#fff; font-size:13px;'>CheXpert-ResNet-v4</span></div>
+                <div style='display:flex; justify-content:space-between;'><span style='color:#8ba0b8; font-size:13px;'>Status</span><span style='color:{status_color}; font-size:13px;'>{st.session_state['scan_status']}</span></div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -415,12 +502,19 @@ else:
                         }
                         report_resp = requests.post(f"{API_URL}/generate-report", json=report_data)
                         if report_resp.status_code == 200:
+                            # Save copy to local server reports directory
+                            report_filename = f"HealthAI_Report_{patient['id']}_{int(time.time())}.pdf"
+                            report_path = os.path.join(REPORTS_DIR, report_filename)
+                            with open(report_path, "wb") as rf:
+                                rf.write(report_resp.content)
+                            
                             st.download_button(
                                 label="📄 Download Extracted PDF Report",
                                 data=report_resp.content,
-                                file_name=f"HealthAI_Report_{patient['id']}.pdf",
+                                file_name=report_filename,
                                 mime="application/pdf"
                             )
+                            st.success(f"Report archived as {report_filename}")
     
                     else:
                         image_placeholder.error(f"API Error: {resp.text}")
