@@ -427,72 +427,148 @@ else:
                             image_placeholder.image(image, width="stretch")
                         
                         # Dynamic Confidence HTML Generation
-                        conf_html = "<div style='background:rgba(16,25,41,0.7); padding:24px; border-radius:16px; border:1px solid rgba(43,62,88,0.5); box-shadow:0 10px 30px rgba(0,0,0,0.3);'><strong style='color:#fff; font-size:12px; letter-spacing:1px; display:block; margin-bottom:20px;'>DISEASE CONFIDENCE</strong>"
-                        colors = ['#00f0ff', '#a855f7', '#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#6366f1']
-                        
-                        sorted_preds = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
+                        is_normal = data.get("is_normal", False)
+                        no_finding_prob = data.get("no_finding_prob", 0.0)
+
+                        # Filter out 'No Finding' from disease bars
+                        disease_preds = {k: v for k, v in predictions.items() if k.lower() != "no finding"}
+                        sorted_preds = sorted(disease_preds.items(), key=lambda x: x[1], reverse=True)
                         highest_dis = sorted_preds[0] if sorted_preds else ("Unknown", 0)
-                        
-                        for idx, (disease, prob) in enumerate(sorted_preds[:5]):
+
+                        # Determine overall scan verdict
+                        top_score = highest_dis[1]
+                        if is_normal or top_score < 0.10:
+                            verdict_color = "#10b981"
+                            verdict_icon = "✅"
+                            verdict_text = "NO SIGNIFICANT PATHOLOGY DETECTED"
+                        elif top_score >= 0.5:
+                            verdict_color = "#ef4444"
+                            verdict_icon = "🔴"
+                            verdict_text = f"CRITICAL: {highest_dis[0].upper()} DETECTED"
+                        elif top_score >= 0.25:
+                            verdict_color = "#f59e0b"
+                            verdict_icon = "🟡"
+                            verdict_text = f"SUSPECTED: {highest_dis[0].upper()}"
+                        else:
+                            verdict_color = "#00f0ff"
+                            verdict_icon = "🔵"
+                            verdict_text = f"MILD INDICATOR: {highest_dis[0].upper()}"
+
+                        conf_rows = ""
+                        colors = ['#00f0ff', '#a855f7', '#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#6366f1']
+                        for idx, (disease, prob) in enumerate(sorted_preds[:6]):
                             percentage = prob * 100
                             color = colors[idx % len(colors)]
-                            level = "High" if prob > 0.7 else "Med" if prob > 0.4 else "Low"
-                            
-                            conf_html += f"""
-                            <div style="margin-bottom:15px;">
-                                <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:13px; font-weight:600;">
-                                    <span style="color:#fff;">{disease.upper()}</span>
-                                    <span style="color:{color};">{percentage:.1f}% <span style='opacity:0.7; font-size:11px;'>[{level}]</span></span>
-                                </div>
-                                <div style="width:100%; background:rgba(255,255,255,0.05); height:8px; border-radius:4px;">
-                                    <div style="width:{percentage}%; background:{color}; height:100%; border-radius:4px; box-shadow:0 0 10px {color};"></div>
-                                </div>
-                            </div>
-                            """
-                        conf_html += "</div>"
+                            level = "HIGH" if prob > 0.5 else "MED" if prob > 0.2 else "LOW"
+                            level_color = "#ef4444" if level == "HIGH" else ("#f59e0b" if level == "MED" else "#8ba0b8")
+                            conf_rows += f"""
+<div style="margin-bottom:14px;">
+<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px;font-weight:600;">
+<span style="color:#e2e8f0;">{disease.upper()}</span>
+<span style="color:{color};">{percentage:.1f}% <span style="color:{level_color};font-size:10px;font-weight:700;background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:3px;">{level}</span></span>
+</div>
+<div style="width:100%;background:rgba(255,255,255,0.07);height:7px;border-radius:4px;overflow:hidden;">
+<div style="width:{min(percentage, 100):.1f}%;background:linear-gradient(90deg,{color},{color}88);height:100%;border-radius:4px;box-shadow:0 0 8px {color}88;"></div>
+</div>
+</div>"""
+
+                        conf_html = f"""
+<div style="background:rgba(16,25,41,0.85);padding:20px;border-radius:16px;border:1px solid rgba(43,62,88,0.6);box-shadow:0 10px 30px rgba(0,0,0,0.35);">
+<div style="background:{verdict_color}22;border:1px solid {verdict_color}55;border-radius:10px;padding:12px 16px;margin-bottom:18px;">
+<span style="font-size:18px;">{verdict_icon}</span>
+<span style="color:{verdict_color};font-size:13px;font-weight:800;letter-spacing:0.5px;margin-left:8px;">{verdict_text}</span>
+</div>
+<strong style="color:#8ba0b8;font-size:10px;letter-spacing:1.5px;display:block;margin-bottom:14px;">DISEASE PROBABILITY (18 CONDITIONS)</strong>
+{conf_rows}
+<div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;margin-top:4px;">
+<span style="color:#8ba0b8;font-size:10px;">Model: torchxrayvision DenseNet121 (CheXpert+NIH+MIMIC) &nbsp;|&nbsp; Direct sigmoid probabilities</span>
+</div>
+</div>"""
                         confidence_placeholder.markdown(conf_html, unsafe_allow_html=True)
                         
                         
                         # Compute logic colors for scan status
                         status_text_color = "#10b981" if "Validated" in st.session_state['scan_status'] else ("#f59e0b" if "Review" in st.session_state['scan_status'] else "#fff")
-                        
-                        # Findings Replacement
-                        findings_placeholder.markdown(f"""
-                        <div style='background:rgba(16,25,41,0.7); padding:24px; border-radius:16px; border:1px solid rgba(43,62,88,0.5); height:400px; margin-bottom:24px; overflow-y:auto; box-shadow:0 10px 30px rgba(0,0,0,0.3);'>
-                            <strong style='color:#fff; font-size:12px; letter-spacing:1px; display:block; margin-bottom:20px;'>FINDINGS & NOTES</strong>
-                            <div style="margin-bottom:20px;">
-                                <span style="color:#8ba0b8; font-size:12px; font-weight:bold;">Automated Detection</span><br>
-                                <span style="color:#fff; font-size:14px; line-height:1.5;">Highest diagnostic marker: <strong>{highest_dis[0]}</strong> with {(highest_dis[1]*100):.1f}% confidence. Pathological structures detected resembling standard clinical manifestation.</span>
-                            </div>
-                            <div style="margin-bottom:20px;">
-                                <span style="color:#8ba0b8; font-size:12px; font-weight:bold;">Dr. Review</span><br>
-                                <span style="color:{status_text_color}; font-size:14px; font-weight:bold; line-height:1.5;">{st.session_state['scan_status']}</span>
-                            </div>
-                            <div>
-                                <span style="color:#8ba0b8; font-size:12px; font-weight:bold;">AI Recommendation</span><br>
-                                <span style="color:{'#ff4b4b' if highest_dis[1] > 0.5 else '#00f0ff'}; font-size:14px; line-height:1.5;">{'Critical clinical anomaly recognized, prioritize review.' if highest_dis[1] > 0.5 else 'No severe anomalies observed at strict threshold.'}</span>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-    
-                        # Line Chart (Spline / Area)
-                        df = pd.DataFrame([{"Condition": k, "Probability": v*100} for k, v in predictions.items()][:5])
-                        fig = px.area(
-                            df, x='Condition', y='Probability', 
-                            color_discrete_sequence=['#a855f7'],
-                            markers=True
+
+                        # Build severity info
+                        if is_normal or top_score < 0.15:
+                            primary_finding_html = (
+                                "<span style='color:#10b981;font-size:20px;font-weight:800;'>&#9989; NORMAL SCAN</span>"
+                                f"<br><span style='color:#8ba0b8;font-size:13px;'>No significant pathology detected. "
+                                f"Normal confidence: {no_finding_prob*100:.0f}%</span>"
+                            )
+                            ai_rec = "<span style='color:#10b981;'>No severe anomalies. Routine follow-up recommended.</span>"
+                        else:
+                            sev = "Critical" if top_score >= 0.5 else "Moderate" if top_score >= 0.25 else "Possible"
+                            sev_color = "#ef4444" if sev == "Critical" else ("#f59e0b" if sev == "Moderate" else "#00f0ff")
+                            primary_finding_html = (
+                                f"<span style='color:{sev_color};font-size:20px;font-weight:800;'>{highest_dis[0].upper()}</span>"
+                                f"<br><span style='color:#8ba0b8;font-size:13px;'>Severity: <strong style='color:{sev_color};'>{sev}</strong>"
+                                f" &nbsp;|&nbsp; Score: <strong style='color:#fff;'>{top_score*100:.1f}%</strong></span>"
+                            )
+                            if top_score >= 0.5:
+                                ai_rec = "<span style='color:#ef4444;'>&#9888; Critical anomaly. Immediate clinical review required.</span>"
+                            else:
+                                ai_rec = "<span style='color:#f59e0b;'>Possible finding detected. Further evaluation advised.</span>"
+
+                        secondary_html = ""
+                        for d, p in sorted_preds[1:4]:
+                            if p >= 0.08:
+                                secondary_html += (
+                                    f"<span style='display:inline-block;background:rgba(255,255,255,0.07);"
+                                    f"border-radius:5px;padding:3px 8px;margin:3px 3px 3px 0;"
+                                    f"color:#8ba0b8;font-size:11px;'>{d} ({p*100:.0f}%)</span>"
+                                )
+                        if not secondary_html:
+                            secondary_html = "<span style='color:#8ba0b8;font-size:13px;'>None above threshold</span>"
+
+                        # Findings panel - built as concatenated string to avoid Streamlit code-block bug
+                        findings_html = (
+                            "<div style='background:rgba(16,25,41,0.85);padding:24px;border-radius:16px;"
+                            "border:1px solid rgba(43,62,88,0.5);min-height:400px;margin-bottom:24px;"
+                            "overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,0.3);'>"
+                            "<strong style='color:#fff;font-size:11px;letter-spacing:1.5px;"
+                            "display:block;margin-bottom:18px;'>FINDINGS &amp; NOTES</strong>"
+                            "<div style='margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.07);padding-bottom:16px;'>"
+                            "<span style='color:#8ba0b8;font-size:10px;font-weight:700;letter-spacing:1px;'>PRIMARY DIAGNOSIS</span>"
+                            "<br><br>" + primary_finding_html + "</div>"
+                            "<div style='margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.07);padding-bottom:16px;'>"
+                            "<span style='color:#8ba0b8;font-size:10px;font-weight:700;letter-spacing:1px;'>SECONDARY INDICATORS</span>"
+                            "<br><br>" + secondary_html + "</div>"
+                            f"<div style='margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.07);padding-bottom:16px;'>"
+                            f"<span style='color:#8ba0b8;font-size:10px;font-weight:700;letter-spacing:1px;'>DR. REVIEW STATUS</span>"
+                            f"<br><br><span style='color:{status_text_color};font-size:14px;font-weight:700;'>"
+                            f"{st.session_state['scan_status']}</span></div>"
+                            "<div><span style='color:#8ba0b8;font-size:10px;font-weight:700;letter-spacing:1px;'>AI RECOMMENDATION</span>"
+                            "<br><br>" + ai_rec + "</div></div>"
                         )
+                        findings_placeholder.markdown(findings_html, unsafe_allow_html=True)
+
+                        # Line Chart (Spline / Area) - uses only disease predictions, not 'No Finding'
+                        df = pd.DataFrame([
+                            {"Condition": k, "Probability": v * 100}
+                            for k, v in sorted_preds[:8]
+                        ])
+                        fig = px.bar(
+                            df, x='Condition', y='Probability',
+                            color='Probability',
+                            color_continuous_scale=['#1e3a5f', '#00f0ff'],
+                            text='Probability'
+                        )
+                        fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
                         fig.update_layout(
-                            height=250, 
-                            paper_bgcolor='rgba(0,0,0,0)', 
-                            plot_bgcolor='rgba(0,0,0,0)', 
+                            height=260,
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
                             font={'color': "#8ba0b8", 'family': "Inter"},
-                            margin=dict(l=0, r=0, t=20, b=0),
-                            yaxis=dict(gridcolor="rgba(255,255,255,0.05)", zerolinecolor="rgba(255,255,255,0.05)"),
-                            xaxis=dict(gridcolor="rgba(255,255,255,0.0)", tickangle=0)
+                            margin=dict(l=0, r=0, t=30, b=0),
+                            yaxis=dict(gridcolor="rgba(255,255,255,0.05)", zerolinecolor="rgba(255,255,255,0.05)", range=[0, 110]),
+                            xaxis=dict(gridcolor="rgba(255,255,255,0.0)", tickangle=-20),
+                            coloraxis_showscale=False,
+                            showlegend=False
                         )
                         with chart_placeholder:
-                            st.markdown("<strong style='color:#fff; font-size:12px; letter-spacing:1px; display:block; margin:20px 0 5px 0;'>DISEASE PROBABILITY DISTRIBUTION</strong>", unsafe_allow_html=True)
+                            st.markdown("<strong style='color:#fff;font-size:11px;letter-spacing:1px;display:block;margin:20px 0 5px 0;'>DISEASE PROBABILITY DISTRIBUTION (CALIBRATED)</strong>", unsafe_allow_html=True)
                             st.plotly_chart(fig, use_container_width=True)
     
                         # Export Section (Using Patient Variables securely)

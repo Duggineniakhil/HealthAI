@@ -1,7 +1,7 @@
 
 ---
 
-# 🫁 **HealthAI Pro – Clinical Neural Diagnostic System**
+# 🫁 **HealthAI – Clinical Neural Diagnostic System**
 
 *A premium, state-of-the-art AI medical dashboard designed for automated chest X-ray pathology detection, clinical patient management, and automated report archiving.*
 
