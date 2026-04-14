@@ -19,6 +19,10 @@ from fpdf import FPDF
 import logger_config
 import os
 import time
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_mobilenet
+from tensorflow.keras.applications.densenet import preprocess_input as preprocess_densenet
 
 logger = logger_config.logger
 
@@ -29,7 +33,9 @@ logger = logger_config.logger
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODELS_DIR = Path(os.getenv("MODELS_DIR", str(BASE_DIR / "models")))
 
-# Legacy simple model paths (still used for binary pneumonia endpoint)
+# Local model paths
+XRAY_MULTI_MODEL_PATH = MODELS_DIR / "xray_chexpert_multidisease_model.h5"
+XRAY_MULTI_LABELS_PATH = MODELS_DIR / "xray_chexpert_labels.json"
 XRAY_SIMPLE_MODEL_PATH = MODELS_DIR / "xray_disease_model.h5"
 XRAY_SIMPLE_CLASS_MAPPING_PATH = MODELS_DIR / "xray_class_mapping.json"
 
@@ -52,9 +58,11 @@ async def log_requests(request, call_next):
 # -----------------------------
 
 MODELS = {
-    "xrv": None,           # torchxrayvision DenseNet121 (multi-disease)
+    "xrv": None,           # torchxrayvision DenseNet121 (secondary fallback)
     "xrv_labels": [],
-    "simple": None,        # legacy TF binary model (optional)
+    "multi": None,         # local CheXpert DenseNet121 (.h5)
+    "multi_labels": [],
+    "simple": None,        # local Binary MobileNetV2 (.h5)
     "simple_map": {},
 }
 
@@ -73,23 +81,38 @@ def load_xrv_model():
         return None, []
 
 def load_simple_model():
-    """Load legacy TF binary model (optional fallback)."""
+    """Load local TF binary model (primary)."""
     try:
-        from tensorflow.keras.models import load_model
         if XRAY_SIMPLE_MODEL_PATH.exists() and XRAY_SIMPLE_CLASS_MAPPING_PATH.exists():
-            model = load_model(XRAY_SIMPLE_MODEL_PATH)
+            logger.info(f"Loading local binary model: {XRAY_SIMPLE_MODEL_PATH.name}...")
+            model = load_model(str(XRAY_SIMPLE_MODEL_PATH))
             with open(XRAY_SIMPLE_CLASS_MAPPING_PATH, "r") as f:
                 raw_map = json.load(f)
             class_map = {int(k): v for k, v in raw_map.items()}
             logger.info(f"✅ Simple binary model loaded: {class_map}")
             return model, class_map
     except Exception as e:
-        logger.error(f"⚠️ Simple model not loaded (non-critical): {e}")
+        logger.error(f"❌ Binary model error: {e}")
     return None, {}
+
+def load_multi_model():
+    """Load local multi-disease model (primary)."""
+    try:
+        if XRAY_MULTI_MODEL_PATH.exists() and XRAY_MULTI_LABELS_PATH.exists():
+            logger.info(f"Loading local multi-disease model: {XRAY_MULTI_MODEL_PATH.name}...")
+            model = load_model(str(XRAY_MULTI_MODEL_PATH))
+            with open(XRAY_MULTI_LABELS_PATH, "r") as f:
+                labels = json.load(f)
+            logger.info(f"✅ Local Multi-model loaded. Pathologies: {labels}")
+            return model, labels
+    except Exception as e:
+        logger.error(f"❌ Multi-model error: {e}")
+    return None, []
 
 # Load models at startup
 MODELS["xrv"], MODELS["xrv_labels"] = load_xrv_model()
 MODELS["simple"], MODELS["simple_map"] = load_simple_model()
+MODELS["multi"], MODELS["multi_labels"] = load_multi_model()
 
 # -----------------------------
 # Image Preprocessing
@@ -109,17 +132,72 @@ def preprocess_xrv(file_bytes: bytes) -> torch.Tensor:
     return torch.from_numpy(img_tensor).unsqueeze(0)  # shape: (1, 1, 224, 224)
 
 def preprocess_simple(file_bytes: bytes) -> np.ndarray:
-    """Preprocess image for legacy TF model."""
+    """Preprocess image for local MobileNetV2 binary model."""
     img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
     img = img.resize(IMG_SIZE)
-    return np.expand_dims(np.array(img) / 255.0, axis=0)
+    img_array = np.array(img).astype(np.float32)
+    # Correct normalization for MobileNetV2 [-1, 1]
+    img_array = preprocess_mobilenet(img_array)
+    return np.expand_dims(img_array, axis=0)
+
+def preprocess_local_multi(file_bytes: bytes) -> np.ndarray:
+    """Preprocess image for local DenseNet121 multi-disease model."""
+    img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+    img = img.resize(IMG_SIZE)
+    img_array = np.array(img).astype(np.float32)
+    # Correct normalization for DenseNet121 [-1, 1]
+    img_array = preprocess_densenet(img_array)
+    return np.expand_dims(img_array, axis=0)
 
 # -----------------------------
 # Grad-CAM for torchxrayvision
 # -----------------------------
 
+def get_gradcam_keras(model, img_array: np.ndarray, last_conv_layer_name: str, nested_model_name: Optional[str] = None):
+    """Compute Grad-CAM for a Keras model (supports nested functional models)."""
+    try:
+        # If it's a nested model (like densenet121 inside a wrapper)
+        if nested_model_name:
+            base_model = model.get_layer(nested_model_name)
+        else:
+            base_model = model
+
+        # Create a model that maps the input to the activations of the last conv layer as well as the output predictions
+        grad_model = tf.keras.models.Model(
+            [base_model.inputs], [base_model.get_layer(last_conv_layer_name).output, base_model.output]
+        )
+
+        # If the input was to the outer wrapper, we need to handle that. 
+        # But usually we can just use the base_model if weights are shared.
+        
+        with tf.GradientTape() as tape:
+            last_conv_layer_output, preds = grad_model(img_array)
+            class_channel = preds[:, np.argmax(preds[0])]
+
+        # This is the gradient of the top predicted class with regard to
+        # the output feature map of the last conv layer
+        grads = tape.gradient(class_channel, last_conv_layer_output)
+
+        # This is a vector where each entry is the mean intensity of the gradient
+        # over a specific feature map channel
+        pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+        # We multiply each channel in the feature map array
+        # by "how important this channel is" with regard to the top predicted class
+        # then sum all the channels to obtain the heatmap class activation
+        last_conv_layer_output = last_conv_layer_output[0]
+        heatmap = last_conv_layer_output @ pooled_grads[..., tf.newaxis]
+        heatmap = tf.squeeze(heatmap)
+
+        # For visualization, we will also normalize the heatmap between 0 & 1
+        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+        return heatmap.numpy()
+    except Exception as e:
+        logger.error(f"Keras Grad-CAM error: {e}")
+        return None
+
 def get_gradcam_xrv(model, img_tensor: torch.Tensor, class_idx: int):
-    """Compute Grad-CAM for torchxrayvision DenseNet."""
+    """Compute Grad-CAM for torchxrayvision DenseNet (Fallback)."""
     try:
         # Hook to capture gradients and activations from the last dense block
         activations = {}
@@ -225,97 +303,110 @@ def health():
 
 @app.post("/predict-xray")
 async def predict_simple(file: UploadFile = File(...)):
-    """Binary NORMAL/PNEUMONIA prediction. Uses torchxrayvision if simple model unavailable."""
+    """Binary NORMAL/PNEUMONIA prediction using local MobileNetV2."""
     file_bytes = await file.read()
 
-    # Try torchxrayvision first (more reliable)
+    # Try local binary model first
+    if MODELS["simple"] is not None:
+        arr = preprocess_simple(file_bytes)
+        # MobileNetV2 output is sigmoid [0, 1]
+        prob = float(MODELS["simple"].predict(arr, verbose=0)[0][0])
+        label = MODELS["simple_map"].get(1 if prob >= 0.5 else 0, "Unknown")
+        
+        # Grad-CAM for Keras MobileNetV2
+        heatmap = get_gradcam_keras(MODELS["simple"], arr, "Conv_1", "mobilenetv2_1.00_224")
+        heatmap_b64 = apply_heatmap(file_bytes, heatmap) if heatmap is not None else None
+
+        logger.info(f"Binary Prediction: {label} (prob={prob:.4f})")
+        return {
+            "predicted_label": label,
+            "pneumonia_probability": prob,
+            "heatmap": heatmap_b64
+        }
+
+    # Fallback to torchxrayvision if local model missing
     if MODELS["xrv"] is not None:
         img_tensor = preprocess_xrv(file_bytes)
         with torch.no_grad():
             preds = torch.sigmoid(MODELS["xrv"](img_tensor))[0].numpy()
         labels = MODELS["xrv_labels"]
-        # Get pneumonia score
         pneumonia_idx = next((i for i, l in enumerate(labels) if "pneumonia" in l.lower()), None)
         pneumonia_prob = float(preds[pneumonia_idx]) if pneumonia_idx is not None else 0.5
         label = "PNEUMONIA" if pneumonia_prob >= 0.5 else "NORMAL"
 
-        # Grad-CAM
-        img_tensor2 = preprocess_xrv(file_bytes)
-        top_idx = int(np.argmax(preds))
-        heatmap = get_gradcam_xrv(MODELS["xrv"], img_tensor2, top_idx)
-        heatmap_b64 = apply_heatmap(file_bytes, heatmap) if heatmap is not None else None
-
         return {
             "predicted_label": label,
             "pneumonia_probability": pneumonia_prob,
-            "heatmap": heatmap_b64
-        }
-
-    # Fallback to legacy TF model
-    if MODELS["simple"] is not None:
-        arr = preprocess_simple(file_bytes)
-        prob = float(MODELS["simple"].predict(arr)[0][0])
-        return {
-            "predicted_label": MODELS["simple_map"].get(1 if prob >= 0.5 else 0, "Unknown"),
-            "pneumonia_probability": prob,
             "heatmap": None
         }
 
-    raise HTTPException(500, "No model available")
+    raise HTTPException(500, "No binary model available")
 
 
 @app.post("/predict-xray-multidisease")
 async def predict_multi(file: UploadFile = File(...)):
-    """Multi-disease prediction using torchxrayvision DenseNet121."""
-    if MODELS["xrv"] is None:
-        raise HTTPException(500, "torchxrayvision model not loaded")
+    """Multi-disease prediction using local CheXpert DenseNet121 model."""
+    if MODELS["multi"] is None:
+        # Fallback to torchxrayvision if local multi-model missing
+        if MODELS["xrv"] is not None:
+            return await predict_multi_xrv(file)
+        raise HTTPException(500, "No multi-disease model loaded")
 
     file_bytes = await file.read()
-    logger.info("Starting torchxrayvision multi-disease prediction...")
+    logger.info("Starting local multi-disease prediction...")
 
-    img_tensor = preprocess_xrv(file_bytes)
-
-    with torch.no_grad():
-        raw_out = MODELS["xrv"](img_tensor)          # raw logits
-        probs = torch.sigmoid(raw_out)[0].numpy()    # sigmoid probabilities
-
-    labels = MODELS["xrv_labels"]
-    raw_predictions = {labels[i]: float(probs[i]) for i in range(len(labels))}
-
-    # ------------------------------------------------------------------
-    # Filter out None/empty labels (some xrv models have blank slots)
-    # ------------------------------------------------------------------
-    predictions = {k: v for k, v in raw_predictions.items() if k and k.strip()}
-
-    # Sort by probability
+    arr = preprocess_local_multi(file_bytes)
+    preds = MODELS["multi"].predict(arr, verbose=0)[0]    # sigmoid probabilities
+    labels = MODELS["multi_labels"]
+    
+    predictions = {labels[i]: float(preds[i]) for i in range(len(labels))}
     sorted_preds = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
     top_label, top_prob = sorted_preds[0]
 
-    # ------------------------------------------------------------------
-    # Determine if the scan is likely normal:
-    # Normal = no disease scores >= 0.15 AND top score < 0.2
-    # ------------------------------------------------------------------
-    is_normal = top_prob < 0.15
+    # Robust "is_normal" logic: 
+    # High probability of "No Finding" OR low probability for all disease classes
+    no_finding_prob = predictions.get("No Finding", 0.0)
+    
+    # Condition is normal if top label is "No Finding" OR top disease probability is very low
+    top_disease_label, top_disease_prob = next(((l, p) for l, p in sorted_preds if l != "No Finding"), ("None", 0.0))
+    is_normal = (top_label == "No Finding" and top_prob > 0.45) or (top_disease_prob < 0.2)
 
-    logger.info(f"Top prediction: {top_label} = {top_prob:.3f} | is_normal={is_normal}")
-    logger.info(f"Top 5: {sorted_preds[:5]}")
+    logger.info(f"Local Top: {top_label}={top_prob:.3f} | Disease Top: {top_disease_label}={top_disease_prob:.3f} | is_normal={is_normal}")
 
-    # Grad-CAM for top predicted class
-    logger.info("Generating Grad-CAM...")
-    img_tensor2 = preprocess_xrv(file_bytes)
-    top_idx = labels.index(top_label) if top_label in labels else 0
-    heatmap = get_gradcam_xrv(MODELS["xrv"], img_tensor2, top_idx)
+    # Grad-CAM for local DenseNet121 model
+    logger.info("Generating local Grad-CAM...")
+    heatmap = get_gradcam_keras(MODELS["multi"], arr, "conv5_block16_2_conv", "densenet121")
     heatmap_b64 = apply_heatmap(file_bytes, heatmap) if heatmap is not None else None
 
     return {
         "predictions": predictions,
-        "raw_predictions": raw_predictions,
-        "no_finding_prob": 0.0,  # xrv doesn't have a "No Finding" label; use is_normal instead
-        "heatmap": heatmap_b64,
-        "top3": sorted_preds[:3],
         "is_normal": is_normal,
+        "no_finding_prob": float(no_finding_prob),
+        "top_label": top_disease_label,
+        "top_prob": float(top_disease_prob),
+        "top3": sorted_preds[:3],
+        "heatmap": heatmap_b64
+    }
+
+async def predict_multi_xrv(file: UploadFile):
+    """Fallback predict function using torchxrayvision."""
+    file_bytes = await file.read()
+    img_tensor = preprocess_xrv(file_bytes)
+    with torch.no_grad():
+        raw_out = MODELS["xrv"](img_tensor)
+        probs = torch.sigmoid(raw_out)[0].numpy()
+    labels = MODELS["xrv_labels"]
+    predictions = {labels[i]: float(probs[i]) for i in range(len(labels)) if labels[i] and labels[i].strip()}
+    sorted_preds = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
+    top_label, top_prob = sorted_preds[0]
+    return {
+        "predictions": predictions,
+        "is_normal": top_prob < 0.15,
+        "no_finding_prob": 0.0,
         "top_label": top_label,
         "top_prob": float(top_prob),
+        "top3": sorted_preds[:3],
+        "heatmap": None
     }
 
 

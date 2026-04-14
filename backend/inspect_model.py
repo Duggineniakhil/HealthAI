@@ -19,6 +19,7 @@ def inspect_chexpert():
     try:
         import tensorflow as tf
         from tensorflow.keras.models import load_model
+        from tensorflow.keras.applications.densenet import preprocess_input as preprocess_densenet
 
         model_path = MODELS_DIR / "xray_chexpert_multidisease_model.h5"
         labels_path = MODELS_DIR / "xray_chexpert_labels.json"
@@ -77,7 +78,9 @@ def inspect_chexpert():
         print(f"\n{'='*60}")
         print("Testing with dummy images...")
         for name, val in [("White 220", 220), ("Mid-Grey 128", 128), ("Dark 30", 30)]:
-            dummy = np.full((1, 224, 224, 3), val / 255.0, dtype=np.float32)
+            dummy = np.full((224, 224, 3), val, dtype=np.float32)
+            dummy = preprocess_densenet(dummy)
+            dummy = np.expand_dims(dummy, axis=0)
             preds = model.predict(dummy, verbose=0)[0]
             result = {labels[i]: float(preds[i]) for i in range(len(labels))}
             sorted_result = sorted(result.items(), key=lambda x: x[1], reverse=True)
@@ -94,6 +97,7 @@ def inspect_simple():
     try:
         import tensorflow as tf
         from tensorflow.keras.models import load_model
+        from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_mobilenet
 
         model_path = MODELS_DIR / "xray_disease_model.h5"
         with open(MODELS_DIR / "xray_class_mapping.json") as f:
@@ -111,7 +115,9 @@ def inspect_simple():
 
         # Test grey and white images
         for name, val in [("White 220", 220), ("Mid-Grey 128", 128), ("Dark 30", 30)]:
-            dummy = np.full((1, 224, 224, 3), val / 255.0, dtype=np.float32)
+            dummy = np.full((224, 224, 3), val, dtype=np.float32)
+            dummy = preprocess_mobilenet(dummy)
+            dummy = np.expand_dims(dummy, axis=0)
             pred = model.predict(dummy, verbose=0)[0][0]
             label = class_map.get(1 if pred >= 0.5 else 0)
             print(f"  [{name}] pred={pred:.4f} -> {label}")

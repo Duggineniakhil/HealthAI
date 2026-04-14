@@ -478,10 +478,10 @@ else:
 <span style="font-size:18px;">{verdict_icon}</span>
 <span style="color:{verdict_color};font-size:13px;font-weight:800;letter-spacing:0.5px;margin-left:8px;">{verdict_text}</span>
 </div>
-<strong style="color:#8ba0b8;font-size:10px;letter-spacing:1.5px;display:block;margin-bottom:14px;">DISEASE PROBABILITY (18 CONDITIONS)</strong>
+<strong style="color:#8ba0b8;font-size:10px;letter-spacing:1.5px;display:block;margin-bottom:14px;">DISEASE PROBABILITY (8 CHEXPERT CONDITIONS)</strong>
 {conf_rows}
 <div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;margin-top:4px;">
-<span style="color:#8ba0b8;font-size:10px;">Model: torchxrayvision DenseNet121 (CheXpert+NIH+MIMIC) &nbsp;|&nbsp; Direct sigmoid probabilities</span>
+<span style="color:#8ba0b8;font-size:10px;">Model: CheXpert-DenseNet121 (.h5) &nbsp;|&nbsp; Calibrated Preprocessing</span>
 </div>
 </div>"""
                         confidence_placeholder.markdown(conf_html, unsafe_allow_html=True)
