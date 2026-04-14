@@ -385,7 +385,7 @@ else:
                 <strong style='color:#fff; font-size:12px; letter-spacing:1px; display:block; margin-bottom:15px;'>SCAN DETAILS</strong>
                 <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Patient ID</span><span style='color:#fff; font-size:13px;'>{patient["id"]}</span></div>
                 <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Scan Date</span><span style='color:#fff; font-size:13px;'>{datetime.now().strftime("%Y.%m.%d")}</span></div>
-                <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Engine</span><span style='color:#fff; font-size:13px;'>CheXpert-ResNet-v4</span></div>
+                <div style='display:flex; justify-content:space-between; margin-bottom:10px;'><span style='color:#8ba0b8; font-size:13px;'>Engine</span><span style='color:#fff; font-size:13px;'>CheXpert-DenseNet121-v1</span></div>
                 <div style='display:flex; justify-content:space-between;'><span style='color:#8ba0b8; font-size:13px;'>Status</span><span style='color:{status_color}; font-size:13px;'>{st.session_state['scan_status']}</span></div>
             </div>
             """, unsafe_allow_html=True)
@@ -437,7 +437,7 @@ else:
 
                         # Determine overall scan verdict
                         top_score = highest_dis[1]
-                        if is_normal or top_score < 0.10:
+                        if is_normal and top_score < 0.08:
                             verdict_color = "#10b981"
                             verdict_icon = "✅"
                             verdict_text = "NO SIGNIFICANT PATHOLOGY DETECTED"
@@ -450,9 +450,9 @@ else:
                             verdict_icon = "🟡"
                             verdict_text = f"SUSPECTED: {highest_dis[0].upper()}"
                         else:
-                            verdict_color = "#00f0ff"
+                            verdict_color = "#3b82f6"
                             verdict_icon = "🔵"
-                            verdict_text = f"MILD INDICATOR: {highest_dis[0].upper()}"
+                            verdict_text = f"OBSERVATION: {highest_dis[0].upper()} ({top_score:.1%})"
 
                         conf_rows = ""
                         colors = ['#00f0ff', '#a855f7', '#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#6366f1']

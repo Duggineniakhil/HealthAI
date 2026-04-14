@@ -24,6 +24,16 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_mobilenet
 from tensorflow.keras.applications.densenet import preprocess_input as preprocess_densenet
 
+def preprocess_simple(img_array):
+    """Simple 0-1 scaling as used in training for the binary model."""
+    img_array = img_array / 255.0
+    return img_array
+
+def preprocess_local_multi(img_array):
+    """Simple 0-1 scaling as used in training for the multi-disease model."""
+    img_array = img_array / 255.0
+    return img_array
+
 logger = logger_config.logger
 
 # -----------------------------
@@ -131,23 +141,19 @@ def preprocess_xrv(file_bytes: bytes) -> torch.Tensor:
     img_tensor = transform(img_np)  # shape: (1, 224, 224)
     return torch.from_numpy(img_tensor).unsqueeze(0)  # shape: (1, 1, 224, 224)
 
-def preprocess_simple(file_bytes: bytes) -> np.ndarray:
+def preprocess_simple_wrapper(file_bytes: bytes) -> np.ndarray:
     """Preprocess image for local MobileNetV2 binary model."""
     img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
     img = img.resize(IMG_SIZE)
     img_array = np.array(img).astype(np.float32)
-    # Correct normalization for MobileNetV2 [-1, 1]
-    img_array = preprocess_mobilenet(img_array)
-    return np.expand_dims(img_array, axis=0)
+    return np.expand_dims(preprocess_simple(img_array), axis=0)
 
-def preprocess_local_multi(file_bytes: bytes) -> np.ndarray:
+def preprocess_local_multi_wrapper(file_bytes: bytes) -> np.ndarray:
     """Preprocess image for local DenseNet121 multi-disease model."""
     img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
     img = img.resize(IMG_SIZE)
     img_array = np.array(img).astype(np.float32)
-    # Correct normalization for DenseNet121 [-1, 1]
-    img_array = preprocess_densenet(img_array)
-    return np.expand_dims(img_array, axis=0)
+    return np.expand_dims(preprocess_local_multi(img_array), axis=0)
 
 # -----------------------------
 # Grad-CAM for torchxrayvision
@@ -308,7 +314,7 @@ async def predict_simple(file: UploadFile = File(...)):
 
     # Try local binary model first
     if MODELS["simple"] is not None:
-        arr = preprocess_simple(file_bytes)
+        arr = preprocess_simple_wrapper(file_bytes)
         # MobileNetV2 output is sigmoid [0, 1]
         prob = float(MODELS["simple"].predict(arr, verbose=0)[0][0])
         label = MODELS["simple_map"].get(1 if prob >= 0.5 else 0, "Unknown")
@@ -355,7 +361,7 @@ async def predict_multi(file: UploadFile = File(...)):
     file_bytes = await file.read()
     logger.info("Starting local multi-disease prediction...")
 
-    arr = preprocess_local_multi(file_bytes)
+    arr = preprocess_local_multi_wrapper(file_bytes)
     preds = MODELS["multi"].predict(arr, verbose=0)[0]    # sigmoid probabilities
     labels = MODELS["multi_labels"]
     
@@ -369,7 +375,14 @@ async def predict_multi(file: UploadFile = File(...)):
     
     # Condition is normal if top label is "No Finding" OR top disease probability is very low
     top_disease_label, top_disease_prob = next(((l, p) for l, p in sorted_preds if l != "No Finding"), ("None", 0.0))
-    is_normal = (top_label == "No Finding" and top_prob > 0.45) or (top_disease_prob < 0.2)
+    
+    # 4. Calibrate "Normal" verdict
+    # SIGNIFICANT CHANGE: Lowering threshold to 8% (0.08) for high recall
+    # If the top disease is > 0.08 and No Finding isn't overwhelmingly high (> 0.7), it's pathological.
+    is_normal = (no_finding_prob > 0.5 and top_disease_prob < 0.08)
+    
+    if top_disease_prob > 0.25:
+         is_normal = False # Confident pathology
 
     logger.info(f"Local Top: {top_label}={top_prob:.3f} | Disease Top: {top_disease_label}={top_disease_prob:.3f} | is_normal={is_normal}")
 
