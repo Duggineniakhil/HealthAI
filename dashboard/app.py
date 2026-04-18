@@ -314,8 +314,8 @@ else:
     elif nav_choice == "SETTINGS":
         st.subheader("⚙️ Analysis Settings")
         st.slider("Baseline AI Confidence Threshold", 0.0, 1.0, 0.5)
-        st.checkbox("Enable Background Telemetry Logging", value=True)
-        st.checkbox("Force Grad-CAM High Resolution", value=False)
+        st.checkbox("Enable Background Telemetry Logging", value=True, disabled=True)
+        st.checkbox("Force Grad-CAM High Resolution", value=True, disabled=True)
         st.button("SAVE SYSTEM PARAMETERS")
         
     elif nav_choice == "ANALYSIS":
