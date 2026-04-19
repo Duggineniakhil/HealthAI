@@ -67,6 +67,6 @@ streamlit run app.py
 
 ## Author
 **Duggineni Akhil**  
-*Lead Developer | Medical AI Researcher*  
+*Lead Developer | AI Researcher*  
 [LinkedIn](https://linkedin.com/in/akhil-duggineni) | [GitHub](https://github.com/Duggineniakhil)
 
