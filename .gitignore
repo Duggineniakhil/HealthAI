@@ -12,6 +12,18 @@ datasets/
 *.pt
 *.dataset
 
+# Fine-tuned model metadata ships with its (ignored) .keras file
+models/chexpert_*_meta.json
+
+# Training run outputs (notebook 03: checkpoints, logs, smoke-test data)
+outputs/
+notebooks/outputs/
+
+# Runtime patient data and generated reports (contain patient information)
+dashboard/data/
+dashboard/reports/
+dashboard/dashboard/
+
 # Python virtual environment
 venv/
 .env

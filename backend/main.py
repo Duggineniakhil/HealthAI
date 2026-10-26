@@ -1,38 +1,31 @@
+from __future__ import annotations
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 import numpy as np
-import torch
-import torchvision.transforms as transforms
-import torchxrayvision as xrv
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import io
 import json
 import base64
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 from fpdf import FPDF
 import logger_config
 import os
 import time
 import tensorflow as tf
 from tensorflow.keras.models import load_model
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as preprocess_mobilenet
-from tensorflow.keras.applications.densenet import preprocess_input as preprocess_densenet
 
-def preprocess_simple(img_array):
-    """Simple 0-1 scaling as used in training for the binary model."""
-    img_array = img_array / 255.0
-    return img_array
-
-def preprocess_local_multi(img_array):
-    """Simple 0-1 scaling as used in training for the multi-disease model."""
-    img_array = img_array / 255.0
-    return img_array
+# torchxrayvision is an optional fallback; the backend runs on TensorFlow alone
+try:
+    import torch
+    import torchvision.transforms as transforms
+    import torchxrayvision as xrv
+except ImportError:
+    torch = transforms = xrv = None
 
 logger = logger_config.logger
 
@@ -49,7 +42,16 @@ XRAY_MULTI_LABELS_PATH = MODELS_DIR / "xray_chexpert_labels.json"
 XRAY_SIMPLE_MODEL_PATH = MODELS_DIR / "xray_disease_model.h5"
 XRAY_SIMPLE_CLASS_MAPPING_PATH = MODELS_DIR / "xray_class_mapping.json"
 
-IMG_SIZE = (224, 224)
+# How each model expects its input and where Grad-CAM reads features.
+# "nested_model": legacy Sequential([backbone, GAP, Dropout, Dense]) models, where the
+# backbone's own output is the Grad-CAM feature map.
+SIMPLE_CFG = {"name": "MobileNetV2-binary", "img_size": 224, "preprocess": "scale_0_1",
+              "nested_model": "mobilenetv2_1.00_224"}
+LEGACY_MULTI_CFG = {"name": "CheXpert-DenseNet121-v1", "img_size": 224, "preprocess": "scale_0_1",
+                    "nested_model": "densenet121", "thresholds": None}
+
+# Legacy multi-disease decision rule (used only when the model has no tuned thresholds)
+LEGACY_DISEASE_THRESHOLD = 0.08
 
 app = FastAPI(title="HealthAI Pro Backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -70,14 +72,18 @@ async def log_requests(request, call_next):
 MODELS = {
     "xrv": None,           # torchxrayvision DenseNet121 (secondary fallback)
     "xrv_labels": [],
-    "multi": None,         # local CheXpert DenseNet121 (.h5)
+    "multi": None,         # fine-tuned CheXpert model (.keras, notebook 03) or legacy DenseNet121 (.h5)
     "multi_labels": [],
+    "multi_cfg": {},
     "simple": None,        # local Binary MobileNetV2 (.h5)
     "simple_map": {},
 }
 
 def load_xrv_model():
     """Load the torchxrayvision DenseNet121 pretrained on CheXpert + NIH + PadChest + MIMIC."""
+    if xrv is None:
+        logger.info("torchxrayvision not installed - fallback model disabled.")
+        return None, []
     try:
         logger.info("Loading torchxrayvision DenseNet121 (all datasets)...")
         model = xrv.models.DenseNet(weights="densenet121-res224-all")
@@ -95,7 +101,7 @@ def load_simple_model():
     try:
         if XRAY_SIMPLE_MODEL_PATH.exists() and XRAY_SIMPLE_CLASS_MAPPING_PATH.exists():
             logger.info(f"Loading local binary model: {XRAY_SIMPLE_MODEL_PATH.name}...")
-            model = load_model(str(XRAY_SIMPLE_MODEL_PATH))
+            model = load_model(str(XRAY_SIMPLE_MODEL_PATH), compile=False)
             with open(XRAY_SIMPLE_CLASS_MAPPING_PATH, "r") as f:
                 raw_map = json.load(f)
             class_map = {int(k): v for k, v in raw_map.items()}
@@ -105,28 +111,69 @@ def load_simple_model():
         logger.error(f"❌ Binary model error: {e}")
     return None, {}
 
+def find_multi_meta() -> Optional[Path]:
+    """Metadata of the fine-tuned model: $MULTI_MODEL_META, else the newest chexpert_*_meta.json."""
+    name = os.getenv("MULTI_MODEL_META")
+    if name:
+        return MODELS_DIR / name
+    metas = sorted(MODELS_DIR.glob("chexpert_*_meta.json"), key=lambda p: p.stat().st_mtime)
+    return metas[-1] if metas else None
+
 def load_multi_model():
-    """Load local multi-disease model (primary)."""
+    """Load the fine-tuned multi-disease model (notebook 03), falling back to the legacy .h5."""
+    meta_path = find_multi_meta()
+    if meta_path is not None:
+        try:
+            meta = json.loads(meta_path.read_text())
+            logger.info(f"Loading fine-tuned multi-disease model: {meta['model_file']}...")
+            model = load_model(str(MODELS_DIR / meta["model_file"]), compile=False)
+            cfg = {"name": meta["name"], "img_size": meta["img_size"], "preprocess": meta["preprocess"],
+                   "cam_layer": meta["cam_layer"], "nested_model": None, "thresholds": meta.get("thresholds")}
+            logger.info(f"✅ Fine-tuned model loaded: {cfg['name']} | thresholds: {cfg['thresholds']}")
+            return model, meta["labels"], cfg
+        except Exception as e:
+            logger.error(f"❌ Fine-tuned model error ({meta_path.name}): {e} - trying legacy model")
     try:
         if XRAY_MULTI_MODEL_PATH.exists() and XRAY_MULTI_LABELS_PATH.exists():
             logger.info(f"Loading local multi-disease model: {XRAY_MULTI_MODEL_PATH.name}...")
-            model = load_model(str(XRAY_MULTI_MODEL_PATH))
+            model = load_model(str(XRAY_MULTI_MODEL_PATH), compile=False)
             with open(XRAY_MULTI_LABELS_PATH, "r") as f:
                 labels = json.load(f)
             logger.info(f"✅ Local Multi-model loaded. Pathologies: {labels}")
-            return model, labels
+            return model, labels, LEGACY_MULTI_CFG
     except Exception as e:
         logger.error(f"❌ Multi-model error: {e}")
-    return None, []
+    return None, [], {}
 
 # Load models at startup
 MODELS["xrv"], MODELS["xrv_labels"] = load_xrv_model()
 MODELS["simple"], MODELS["simple_map"] = load_simple_model()
-MODELS["multi"], MODELS["multi_labels"] = load_multi_model()
+MODELS["multi"], MODELS["multi_labels"], MODELS["multi_cfg"] = load_multi_model()
 
 # -----------------------------
 # Image Preprocessing
 # -----------------------------
+
+def decode_upload(file_bytes: bytes) -> Image.Image:
+    """Decode an uploaded image to RGB, rejecting files PIL cannot read."""
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        img.load()
+        return img.convert("RGB")
+    except (UnidentifiedImageError, OSError) as e:
+        raise HTTPException(400, f"Could not read image: {e}")
+
+def prepare_input(img: Image.Image, cfg: dict) -> np.ndarray:
+    """Resize and scale an RGB image the way the model was trained."""
+    size = (cfg["img_size"], cfg["img_size"])
+    if cfg["preprocess"] == "rgb_0_255":
+        # Same steps as the notebook 03 training pipeline: bilinear tf.image.resize on 0-255 pixels;
+        # normalisation happens inside the model
+        arr = tf.image.resize(np.asarray(img, dtype=np.float32), size).numpy()
+    else:
+        # Legacy models (notebooks 01/02): resize, then 0-1 scaling
+        arr = np.asarray(img.resize(size), dtype=np.float32) / 255.0
+    return np.expand_dims(arr, axis=0)
 
 def preprocess_xrv(file_bytes: bytes) -> torch.Tensor:
     """Preprocess image for torchxrayvision: converts to single-channel [-1024, 1024] range."""
@@ -141,63 +188,46 @@ def preprocess_xrv(file_bytes: bytes) -> torch.Tensor:
     img_tensor = transform(img_np)  # shape: (1, 224, 224)
     return torch.from_numpy(img_tensor).unsqueeze(0)  # shape: (1, 1, 224, 224)
 
-def preprocess_simple_wrapper(file_bytes: bytes) -> np.ndarray:
-    """Preprocess image for local MobileNetV2 binary model."""
-    img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-    img = img.resize(IMG_SIZE)
-    img_array = np.array(img).astype(np.float32)
-    return np.expand_dims(preprocess_simple(img_array), axis=0)
-
-def preprocess_local_multi_wrapper(file_bytes: bytes) -> np.ndarray:
-    """Preprocess image for local DenseNet121 multi-disease model."""
-    img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-    img = img.resize(IMG_SIZE)
-    img_array = np.array(img).astype(np.float32)
-    return np.expand_dims(preprocess_local_multi(img_array), axis=0)
-
 # -----------------------------
-# Grad-CAM for torchxrayvision
+# Grad-CAM
 # -----------------------------
 
-def get_gradcam_keras(model, img_array: np.ndarray, last_conv_layer_name: str, nested_model_name: Optional[str] = None):
-    """Compute Grad-CAM for a Keras model (supports nested functional models)."""
-    try:
-        # If it's a nested model (like densenet121 inside a wrapper)
-        if nested_model_name:
-            base_model = model.get_layer(nested_model_name)
+GRAD_MODELS = {}
+
+def get_grad_model(model, cfg: dict):
+    """Callable mapping the input to (feature map, predictions); cached per model."""
+    key = id(model)
+    if key not in GRAD_MODELS:
+        if cfg.get("nested_model"):
+            # Legacy Sequential: run the backbone, keep its feature map, then apply the head layers
+            base = model.get_layer(cfg["nested_model"])
+            head = model.layers[model.layers.index(base) + 1:]
+
+            def grad_model(x):
+                features = base(x, training=False)
+                out = features
+                for layer in head:
+                    out = layer(out, training=False)
+                return features, out
         else:
-            base_model = model
+            # Fine-tuned models have a flat graph, so the feature layer is reachable by name
+            grad_model = tf.keras.Model(model.inputs, [model.get_layer(cfg["cam_layer"]).output, model.output])
+        GRAD_MODELS[key] = grad_model
+    return GRAD_MODELS[key]
 
-        # Create a model that maps the input to the activations of the last conv layer as well as the output predictions
-        grad_model = tf.keras.models.Model(
-            [base_model.inputs], [base_model.get_layer(last_conv_layer_name).output, base_model.output]
-        )
-
-        # If the input was to the outer wrapper, we need to handle that. 
-        # But usually we can just use the base_model if weights are shared.
-        
+def get_gradcam(model, img_array: np.ndarray, cfg: dict, class_idx: int) -> Optional[np.ndarray]:
+    """Grad-CAM heatmap (0-1) for one output class of a Keras model."""
+    try:
+        grad_model = get_grad_model(model, cfg)
         with tf.GradientTape() as tape:
-            last_conv_layer_output, preds = grad_model(img_array)
-            class_channel = preds[:, np.argmax(preds[0])]
-
-        # This is the gradient of the top predicted class with regard to
-        # the output feature map of the last conv layer
-        grads = tape.gradient(class_channel, last_conv_layer_output)
-
-        # This is a vector where each entry is the mean intensity of the gradient
-        # over a specific feature map channel
+            features, preds = grad_model(tf.convert_to_tensor(img_array))
+            score = preds[:, class_idx]
+        grads = tape.gradient(score, features)
+        # Weight each feature channel by its mean gradient, keep positive evidence only
         pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-
-        # We multiply each channel in the feature map array
-        # by "how important this channel is" with regard to the top predicted class
-        # then sum all the channels to obtain the heatmap class activation
-        last_conv_layer_output = last_conv_layer_output[0]
-        heatmap = last_conv_layer_output @ pooled_grads[..., tf.newaxis]
-        heatmap = tf.squeeze(heatmap)
-
-        # For visualization, we will also normalize the heatmap between 0 & 1
-        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
-        return heatmap.numpy()
+        heatmap = tf.nn.relu(tf.reduce_sum(features[0] * pooled_grads, axis=-1)).numpy()
+        peak = heatmap.max()
+        return heatmap / peak if peak > 0 else heatmap
     except Exception as e:
         logger.error(f"Keras Grad-CAM error: {e}")
         return None
@@ -245,12 +275,10 @@ def get_gradcam_xrv(model, img_tensor: torch.Tensor, class_idx: int):
         logger.error(f"Grad-CAM error: {e}")
         return None
 
-def apply_heatmap(file_bytes: bytes, heatmap: np.ndarray) -> str:
+def apply_heatmap(img: Image.Image, heatmap: np.ndarray) -> str:
     """Overlay Grad-CAM heatmap on original image and return base64 JPEG."""
-    img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
     heatmap_uint = np.uint8(255 * heatmap)
-    jet = cm.get_cmap("jet")
-    jet_colors = jet(np.arange(256))[:, :3]
+    jet_colors = matplotlib.colormaps["jet"](np.arange(256))[:, :3]
     jet_heatmap = jet_colors[heatmap_uint]
     jet_img = Image.fromarray(np.uint8(jet_heatmap * 255)).resize((img.width, img.height))
     blended = Image.blend(img, jet_img, alpha=0.45)
@@ -297,6 +325,8 @@ def create_pdf_report(patient_info: dict, predictions: dict):
 # -----------------------------
 # Routes
 # -----------------------------
+# Inference routes are plain `def` so FastAPI runs them in a worker thread
+# instead of blocking the event loop during model execution.
 
 @app.get("/health")
 def health():
@@ -305,23 +335,25 @@ def health():
         "xrv_model": MODELS["xrv"] is not None,
         "xrv_labels": MODELS["xrv_labels"],
         "simple_model": MODELS["simple"] is not None,
+        "multi_model": MODELS["multi_cfg"].get("name") if MODELS["multi"] is not None else None,
+        "multi_thresholds": MODELS["multi_cfg"].get("thresholds"),
     }
 
 @app.post("/predict-xray")
-async def predict_simple(file: UploadFile = File(...)):
+def predict_simple(file: UploadFile = File(...)):
     """Binary NORMAL/PNEUMONIA prediction using local MobileNetV2."""
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
 
     # Try local binary model first
     if MODELS["simple"] is not None:
-        arr = preprocess_simple_wrapper(file_bytes)
+        img = decode_upload(file_bytes)
+        arr = prepare_input(img, SIMPLE_CFG)
         # MobileNetV2 output is sigmoid [0, 1]
         prob = float(MODELS["simple"].predict(arr, verbose=0)[0][0])
         label = MODELS["simple_map"].get(1 if prob >= 0.5 else 0, "Unknown")
-        
-        # Grad-CAM for Keras MobileNetV2
-        heatmap = get_gradcam_keras(MODELS["simple"], arr, "Conv_1", "mobilenetv2_1.00_224")
-        heatmap_b64 = apply_heatmap(file_bytes, heatmap) if heatmap is not None else None
+
+        heatmap = get_gradcam(MODELS["simple"], arr, SIMPLE_CFG, class_idx=0)
+        heatmap_b64 = apply_heatmap(img, heatmap) if heatmap is not None else None
 
         logger.info(f"Binary Prediction: {label} (prob={prob:.4f})")
         return {
@@ -350,46 +382,48 @@ async def predict_simple(file: UploadFile = File(...)):
 
 
 @app.post("/predict-xray-multidisease")
-async def predict_multi(file: UploadFile = File(...)):
-    """Multi-disease prediction using local CheXpert DenseNet121 model."""
+def predict_multi(file: UploadFile = File(...)):
+    """Multi-disease prediction using the fine-tuned (or legacy) CheXpert model."""
+    file_bytes = file.file.read()
     if MODELS["multi"] is None:
         # Fallback to torchxrayvision if local multi-model missing
         if MODELS["xrv"] is not None:
-            return await predict_multi_xrv(file)
+            return predict_multi_xrv(file_bytes)
         raise HTTPException(500, "No multi-disease model loaded")
 
-    file_bytes = await file.read()
-    logger.info("Starting local multi-disease prediction...")
+    cfg = MODELS["multi_cfg"]
+    logger.info(f"Starting multi-disease prediction ({cfg['name']})...")
 
-    arr = preprocess_local_multi_wrapper(file_bytes)
+    img = decode_upload(file_bytes)
+    arr = prepare_input(img, cfg)
     preds = MODELS["multi"].predict(arr, verbose=0)[0]    # sigmoid probabilities
     labels = MODELS["multi_labels"]
-    
+
     predictions = {labels[i]: float(preds[i]) for i in range(len(labels))}
     sorted_preds = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
-    top_label, top_prob = sorted_preds[0]
-
-    # Robust "is_normal" logic: 
-    # High probability of "No Finding" OR low probability for all disease classes
     no_finding_prob = predictions.get("No Finding", 0.0)
-    
-    # Condition is normal if top label is "No Finding" OR top disease probability is very low
-    top_disease_label, top_disease_prob = next(((l, p) for l, p in sorted_preds if l != "No Finding"), ("None", 0.0))
-    
-    # 4. Calibrate "Normal" verdict
-    # SIGNIFICANT CHANGE: Lowering threshold to 8% (0.08) for high recall
-    # If the top disease is > 0.08 and No Finding isn't overwhelmingly high (> 0.7), it's pathological.
-    is_normal = (no_finding_prob > 0.5 and top_disease_prob < 0.08)
-    
-    if top_disease_prob > 0.25:
-         is_normal = False # Confident pathology
+    disease_preds = [(l, p) for l, p in sorted_preds if l != "No Finding"]
+    top_disease_label, top_disease_prob = disease_preds[0] if disease_preds else ("None", 0.0)
 
-    logger.info(f"Local Top: {top_label}={top_prob:.3f} | Disease Top: {top_disease_label}={top_disease_prob:.3f} | is_normal={is_normal}")
+    thresholds = cfg.get("thresholds")
+    if thresholds:
+        # Per-condition thresholds tuned on validation data (notebook 03)
+        findings = [{"label": l, "prob": p, "threshold": thresholds[l]}
+                    for l, p in disease_preds if l in thresholds and p >= thresholds[l]]
+        is_normal = not findings
+    else:
+        # Legacy rule: pathological if any disease exceeds 8% (high recall),
+        # unless "No Finding" is likely and every disease stays under that bar
+        findings = [{"label": l, "prob": p, "threshold": LEGACY_DISEASE_THRESHOLD}
+                    for l, p in disease_preds if p >= LEGACY_DISEASE_THRESHOLD]
+        is_normal = no_finding_prob > 0.5 and top_disease_prob < LEGACY_DISEASE_THRESHOLD
 
-    # Grad-CAM for local DenseNet121 model
-    logger.info("Generating local Grad-CAM...")
-    heatmap = get_gradcam_keras(MODELS["multi"], arr, "conv5_block16_2_conv", "densenet121")
-    heatmap_b64 = apply_heatmap(file_bytes, heatmap) if heatmap is not None else None
+    logger.info(f"Disease Top: {top_disease_label}={top_disease_prob:.3f} | findings={[f['label'] for f in findings]} | is_normal={is_normal}")
+
+    # Grad-CAM explains the most likely disease, not "No Finding"
+    cam_idx = labels.index(top_disease_label) if top_disease_label in labels else int(np.argmax(preds))
+    heatmap = get_gradcam(MODELS["multi"], arr, cfg, cam_idx)
+    heatmap_b64 = apply_heatmap(img, heatmap) if heatmap is not None else None
 
     return {
         "predictions": predictions,
@@ -398,12 +432,14 @@ async def predict_multi(file: UploadFile = File(...)):
         "top_label": top_disease_label,
         "top_prob": float(top_disease_prob),
         "top3": sorted_preds[:3],
+        "findings": findings,
+        "thresholds": thresholds,
+        "model": cfg["name"],
         "heatmap": heatmap_b64
     }
 
-async def predict_multi_xrv(file: UploadFile):
+def predict_multi_xrv(file_bytes: bytes):
     """Fallback predict function using torchxrayvision."""
-    file_bytes = await file.read()
     img_tensor = preprocess_xrv(file_bytes)
     with torch.no_grad():
         raw_out = MODELS["xrv"](img_tensor)
@@ -419,6 +455,9 @@ async def predict_multi_xrv(file: UploadFile):
         "top_label": top_label,
         "top_prob": float(top_prob),
         "top3": sorted_preds[:3],
+        "findings": [{"label": l, "prob": p, "threshold": 0.15} for l, p in sorted_preds if p >= 0.15],
+        "thresholds": None,
+        "model": "torchxrayvision-densenet121-res224-all",
         "heatmap": None
     }
 

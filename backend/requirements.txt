@@ -9,3 +9,8 @@ pydantic
 joblib
 fpdf2
 matplotlib
+
+# Optional: torchxrayvision fallback model
+# torch
+# torchvision
+# torchxrayvision
